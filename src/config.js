@@ -2,12 +2,12 @@
 // Replace these values with your Firebase project config
 // from: Firebase Console > Project Settings > General > Your apps
 export const firebaseConfig = {
-  apiKey: 'YOUR_API_KEY',
-  authDomain: 'YOUR_PROJECT.firebaseapp.com',
-  projectId: 'YOUR_PROJECT_ID',
-  storageBucket: 'YOUR_PROJECT.firebasestorage.app',
-  messagingSenderId: 'YOUR_SENDER_ID',
-  appId: 'YOUR_APP_ID',
+  apiKey: 'AIzaSyCz4ckSpkIiEBghgDMozhCwzw_EvYnBRC0',
+  authDomain: 'workdotpk-a06dc.firebaseapp.com',
+  projectId: 'workdotpk-a06dc',
+  storageBucket: 'workdotpk-a06dc.firebasestorage.app',
+  messagingSenderId: '764388053600',
+  appId: '1:764388053600:web:2e761bac21bacc8d3de905',
 }
 
 // Team members
