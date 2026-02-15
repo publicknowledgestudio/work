@@ -19,6 +19,7 @@ admin.initializeApp()
 const db = admin.firestore()
 
 const CLAUDE_API_KEY = defineSecret('CLAUDE_API_KEY')
+const SLACK_WEBHOOK_URL = defineSecret('SLACK_WEBHOOK_URL')
 
 // Auth middleware
 function authenticate(req, res) {
@@ -265,4 +266,177 @@ async function addNote(req, res) {
 
   const ref = await db.collection('notes').add(note)
   res.status(201).json({ id: ref.id })
+}
+
+// =============================================================
+// Slack Workflow Webhook Endpoint
+// =============================================================
+// Accepts POST requests from Slack Workflow Builder and posts
+// formatted responses back to Slack via incoming webhook.
+//
+// Actions:
+//   { "action": "scrum" }                    — Post daily scrum summary
+//   { "action": "standup", "userEmail", "userName", "yesterday", "today", "blockers" }
+//   { "action": "create_task", "title", "assignee", "status", "priority", "clientId", "projectId" }
+
+exports.slackWebhook = onRequest(
+  { secrets: [CLAUDE_API_KEY, SLACK_WEBHOOK_URL] },
+  async (req, res) => {
+    cors(res)
+    if (req.method === 'OPTIONS') return res.status(204).send('')
+
+    // Authenticate with same API key
+    if (!authenticate(req, res)) return
+
+    const { action } = req.body
+    if (!action) return res.status(400).json({ error: 'action is required' })
+
+    try {
+      let slackMessage
+
+      if (action === 'scrum') {
+        slackMessage = await buildScrumMessage()
+      } else if (action === 'standup') {
+        slackMessage = await handleStandupWebhook(req.body)
+      } else if (action === 'create_task') {
+        slackMessage = await handleCreateTaskWebhook(req.body)
+      } else {
+        return res.status(400).json({ error: `Unknown action: ${action}` })
+      }
+
+      // Post to Slack
+      const webhookUrl = process.env.SLACK_WEBHOOK_URL
+      if (webhookUrl) {
+        await postToSlack(webhookUrl, slackMessage)
+      }
+
+      res.json({ ok: true, message: slackMessage })
+    } catch (err) {
+      console.error('Slack webhook error:', err)
+      res.status(500).json({ error: 'Internal server error' })
+    }
+  }
+)
+
+async function postToSlack(webhookUrl, text) {
+  const resp = await fetch(webhookUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text }),
+  })
+  if (!resp.ok) {
+    console.error('Slack webhook failed:', resp.status, await resp.text())
+  }
+}
+
+async function buildScrumMessage() {
+  const now = new Date()
+  const yesterday = new Date(now)
+  yesterday.setDate(yesterday.getDate() - 1)
+  yesterday.setHours(0, 0, 0, 0)
+  const today = new Date(now)
+  today.setHours(0, 0, 0, 0)
+
+  const closedSnap = await db
+    .collection('tasks')
+    .where('closedAt', '>=', admin.firestore.Timestamp.fromDate(yesterday))
+    .where('closedAt', '<', admin.firestore.Timestamp.fromDate(today))
+    .get()
+  const closedYesterday = closedSnap.docs.map((d) => ({ id: d.id, ...d.data() }))
+
+  const openSnap = await db
+    .collection('tasks')
+    .where('status', 'in', ['todo', 'in_progress', 'review'])
+    .get()
+  const openTasks = openSnap.docs.map((d) => ({ id: d.id, ...d.data() }))
+
+  const team = ['gyan', 'charu', 'sharang', 'anandu']
+  const dateStr = now.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' })
+
+  let msg = `📋 *Daily Scrum — ${dateStr}*\n\n`
+
+  // Closed yesterday
+  msg += `*✅ Closed Yesterday:*\n`
+  let anyClosed = false
+  for (const name of team) {
+    const email = `${name}@publicknowledge.co`
+    const closed = closedYesterday.filter((t) => t.assignee === email)
+    const displayName = name.charAt(0).toUpperCase() + name.slice(1)
+    if (closed.length > 0) {
+      msg += `  ${displayName}: ${closed.map((t) => t.title).join(', ')}\n`
+      anyClosed = true
+    } else {
+      msg += `  ${displayName}: —\n`
+    }
+  }
+  if (!anyClosed) msg += `  _No tasks closed yesterday_\n`
+
+  msg += `\n*📌 Currently Open:*\n`
+  for (const name of team) {
+    const email = `${name}@publicknowledge.co`
+    const open = openTasks.filter((t) => t.assignee === email)
+    const displayName = name.charAt(0).toUpperCase() + name.slice(1)
+    if (open.length > 0) {
+      msg += `  *${displayName}* (${open.length} task${open.length > 1 ? 's' : ''}):\n`
+      for (const t of open) {
+        const statusLabel = t.status === 'in_progress' ? 'In Progress' : t.status === 'todo' ? 'To Do' : 'Review'
+        msg += `    • [${statusLabel}] ${t.title}\n`
+      }
+    } else {
+      msg += `  *${displayName}*: _No open tasks_\n`
+    }
+  }
+
+  const unassigned = openTasks.filter((t) => !t.assignee)
+  if (unassigned.length > 0) {
+    msg += `  *Unassigned* (${unassigned.length}):\n`
+    for (const t of unassigned) {
+      msg += `    • [${t.status}] ${t.title}\n`
+    }
+  }
+
+  return msg
+}
+
+async function handleStandupWebhook(data) {
+  const standup = {
+    userEmail: data.userEmail,
+    userName: data.userName || '',
+    yesterday: data.yesterday || '',
+    today: data.today || '',
+    blockers: data.blockers || '',
+    date: admin.firestore.FieldValue.serverTimestamp(),
+  }
+
+  await db.collection('standups').add(standup)
+
+  let msg = `🧍 *Standup from ${standup.userName || standup.userEmail}*\n`
+  msg += `*Yesterday:* ${standup.yesterday || '_nothing_'}\n`
+  msg += `*Today:* ${standup.today || '_nothing_'}\n`
+  if (standup.blockers) msg += `*🚧 Blockers:* ${standup.blockers}\n`
+
+  return msg
+}
+
+async function handleCreateTaskWebhook(data) {
+  if (!data.title) return '❌ Task title is required'
+
+  const task = {
+    title: data.title,
+    description: data.description || '',
+    clientId: data.clientId || '',
+    projectId: data.projectId || '',
+    assignee: data.assignee || '',
+    status: data.status || 'todo',
+    priority: data.priority || 'medium',
+    deadline: data.deadline ? admin.firestore.Timestamp.fromDate(new Date(data.deadline)) : null,
+    notes: [],
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    closedAt: null,
+    createdBy: data.createdBy || 'slack-workflow',
+  }
+
+  const ref = await db.collection('tasks').add(task)
+  return `✅ Task created: *${task.title}*${task.assignee ? ` → ${task.assignee}` : ''} (${task.status}, ${task.priority} priority)`
 }
