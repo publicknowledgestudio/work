@@ -1,15 +1,19 @@
-import { STATUSES, PRIORITIES } from './config.js'
+import { STATUSES } from './config.js'
 import { updateTask } from './db.js'
 import { openModal } from './modal.js'
 
+function sortUrgentFirst(tasks) {
+  return [...tasks].sort((a, b) => (a.priority === 'urgent' ? 0 : 1) - (b.priority === 'urgent' ? 0 : 1))
+}
+
 export function renderMyTasks(container, tasks, currentUser, ctx) {
   const myEmail = currentUser?.email
-  const myTasks = tasks.filter((t) => t.assignee === myEmail)
+  const myTasks = tasks.filter((t) => (t.assignees || []).includes(myEmail))
 
   container.innerHTML = `
     <div class="my-tasks">
       ${STATUSES.map((s) => {
-        const items = myTasks.filter((t) => t.status === s.id)
+        const items = sortUrgentFirst(myTasks.filter((t) => t.status === s.id))
         return `
           <div class="my-tasks-section" data-status="${s.id}">
             <div class="my-tasks-section-title">
@@ -75,19 +79,20 @@ export function renderMyTasks(container, tasks, currentUser, ctx) {
 }
 
 function taskRow(task, ctx) {
-  const priority = PRIORITIES.find((p) => p.id === task.priority)
   const client = ctx.clients.find((c) => c.id === task.clientId)
   const project = ctx.projects.find((p) => p.id === task.projectId)
   const deadlineStr = formatDeadline(task.deadline)
   const isOverdue = task.deadline && task.status !== 'done' && toDate(task.deadline) < new Date()
+  const isDone = task.status === 'done'
 
   const clientLogo = client?.logoUrl
     ? `<img class="client-logo-xs" src="${client.logoUrl}" alt="${esc(client.name)}" title="${esc(client.name)}">`
     : ''
 
   return `
-    <div class="my-task-row" data-id="${task.id}" draggable="true">
-      <span class="priority-dot" style="background:${priority?.color || '#6b7280'}"></span>
+    <div class="my-task-row${isDone ? ' done' : ''}" data-id="${task.id}" draggable="true">
+      ${statusIcon(task.status)}
+      ${task.priority === 'urgent' ? '<i class="ph-fill ph-warning urgent-icon"></i>' : ''}
       <span class="my-task-title">${esc(task.title)}</span>
       <div class="my-task-meta">
         ${clientLogo}
@@ -95,6 +100,21 @@ function taskRow(task, ctx) {
         ${deadlineStr ? `<span class="my-task-deadline${isOverdue ? ' overdue' : ''}">${deadlineStr}</span>` : ''}
       </div>
     </div>`
+}
+
+function statusIcon(status) {
+  switch (status) {
+    case 'done':
+      return '<i class="ph-fill ph-check-circle status-icon done"></i>'
+    case 'todo':
+      return '<i class="ph ph-circle status-icon todo"></i>'
+    case 'in_progress':
+      return '<i class="ph-fill ph-circle-half status-icon in-progress"></i>'
+    case 'review':
+      return '<i class="ph-fill ph-eye status-icon review"></i>'
+    default: // backlog
+      return '<i class="ph ph-circle-dashed status-icon backlog"></i>'
+  }
 }
 
 function formatDeadline(deadline) {

@@ -1,4 +1,4 @@
-import { TEAM, STATUSES, PRIORITIES } from './config.js'
+import { TEAM, STATUSES } from './config.js'
 import { openModal } from './modal.js'
 
 export function renderStandup(container, tasks, ctx) {
@@ -9,7 +9,7 @@ export function renderStandup(container, tasks, ctx) {
 
   // Build per-member data
   const members = TEAM.map((m) => {
-    const memberTasks = tasks.filter((t) => t.assignee === m.email)
+    const memberTasks = tasks.filter((t) => (t.assignees || []).includes(m.email))
 
     // Closed yesterday: status=done AND closedAt is between yesterdayStart and todayStart
     const closedYesterday = memberTasks.filter((t) => {
@@ -25,7 +25,7 @@ export function renderStandup(container, tasks, ctx) {
   })
 
   // Unassigned open tasks
-  const unassignedOpen = tasks.filter((t) => !t.assignee && t.status !== 'done')
+  const unassignedOpen = tasks.filter((t) => (!t.assignees || t.assignees.length === 0) && t.status !== 'done')
 
   container.innerHTML = `
     <div class="standup-view">
@@ -95,7 +95,6 @@ function unassignedSection(tasks, ctx) {
 }
 
 function standupTask(task, ctx, isDone) {
-  const priority = PRIORITIES.find((p) => p.id === task.priority)
   const status = STATUSES.find((s) => s.id === task.status)
   const client = ctx.clients.find((c) => c.id === task.clientId)
   const project = ctx.projects.find((p) => p.id === task.projectId)
@@ -107,7 +106,7 @@ function standupTask(task, ctx, isDone) {
   return `
     <div class="standup-task${isDone ? ' done' : ''}" data-id="${task.id}">
       <div class="standup-task-left">
-        <span class="priority-dot" style="background:${priority?.color || '#6b7280'}"></span>
+        ${task.priority === 'urgent' ? '<i class="ph-fill ph-warning urgent-icon"></i>' : ''}
         <span class="standup-task-title${isDone ? ' line-through' : ''}">${esc(task.title)}</span>
       </div>
       <div class="standup-task-right">

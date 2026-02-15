@@ -111,7 +111,7 @@ exports.api = onRequest({ secrets: [CLAUDE_API_KEY] }, async (req, res) => {
 async function listTasks(req, res) {
   let q = db.collection('tasks')
 
-  if (req.query.assignee) q = q.where('assignee', '==', req.query.assignee)
+  if (req.query.assignee) q = q.where('assignees', 'array-contains', req.query.assignee)
   if (req.query.status) q = q.where('status', '==', req.query.status)
   if (req.query.clientId) q = q.where('clientId', '==', req.query.clientId)
   if (req.query.projectId) q = q.where('projectId', '==', req.query.projectId)
@@ -125,12 +125,13 @@ async function createTask(req, res) {
   const data = req.body
   if (!data.title) return res.status(400).json({ error: 'title is required' })
 
+  const assignees = data.assignees || (data.assignee ? [data.assignee] : [])
   const task = {
     title: data.title,
     description: data.description || '',
     clientId: data.clientId || '',
     projectId: data.projectId || '',
-    assignee: data.assignee || '',
+    assignees,
     status: data.status || 'todo',
     priority: data.priority || 'medium',
     deadline: data.deadline ? admin.firestore.Timestamp.fromDate(new Date(data.deadline)) : null,
@@ -194,21 +195,27 @@ async function scrumSummary(req, res) {
     .get()
   const openTasks = openSnap.docs.map((d) => ({ id: d.id, ...d.data() }))
 
+  // Helper to get assignees array from task (backward compat)
+  function getAssignees(t) {
+    if (t.assignees) return t.assignees
+    return t.assignee ? [t.assignee] : []
+  }
+
   // Group by assignee
   const team = ['gyan', 'charu', 'sharang', 'anandu']
   const summary = {}
   for (const name of team) {
     const email = `${name}@publicknowledge.co`
     summary[name] = {
-      closedYesterday: closedYesterday.filter((t) => t.assignee === email),
-      open: openTasks.filter((t) => t.assignee === email),
+      closedYesterday: closedYesterday.filter((t) => getAssignees(t).includes(email)),
+      open: openTasks.filter((t) => getAssignees(t).includes(email)),
     }
   }
 
   // Unassigned
   summary['unassigned'] = {
-    closedYesterday: closedYesterday.filter((t) => !t.assignee),
-    open: openTasks.filter((t) => !t.assignee),
+    closedYesterday: closedYesterday.filter((t) => getAssignees(t).length === 0),
+    open: openTasks.filter((t) => getAssignees(t).length === 0),
   }
 
   res.json({ date: now.toISOString().split('T')[0], summary })
@@ -350,6 +357,12 @@ async function buildScrumMessage() {
     .get()
   const openTasks = openSnap.docs.map((d) => ({ id: d.id, ...d.data() }))
 
+  // Helper to get assignees array from task (backward compat)
+  function getAssignees(t) {
+    if (t.assignees) return t.assignees
+    return t.assignee ? [t.assignee] : []
+  }
+
   const team = ['gyan', 'charu', 'sharang', 'anandu']
   const dateStr = now.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' })
 
@@ -360,7 +373,7 @@ async function buildScrumMessage() {
   let anyClosed = false
   for (const name of team) {
     const email = `${name}@publicknowledge.co`
-    const closed = closedYesterday.filter((t) => t.assignee === email)
+    const closed = closedYesterday.filter((t) => getAssignees(t).includes(email))
     const displayName = name.charAt(0).toUpperCase() + name.slice(1)
     if (closed.length > 0) {
       msg += `  ${displayName}: ${closed.map((t) => t.title).join(', ')}\n`
@@ -374,7 +387,7 @@ async function buildScrumMessage() {
   msg += `\n*📌 Currently Open:*\n`
   for (const name of team) {
     const email = `${name}@publicknowledge.co`
-    const open = openTasks.filter((t) => t.assignee === email)
+    const open = openTasks.filter((t) => getAssignees(t).includes(email))
     const displayName = name.charAt(0).toUpperCase() + name.slice(1)
     if (open.length > 0) {
       msg += `  *${displayName}* (${open.length} task${open.length > 1 ? 's' : ''}):\n`
@@ -387,7 +400,7 @@ async function buildScrumMessage() {
     }
   }
 
-  const unassigned = openTasks.filter((t) => !t.assignee)
+  const unassigned = openTasks.filter((t) => getAssignees(t).length === 0)
   if (unassigned.length > 0) {
     msg += `  *Unassigned* (${unassigned.length}):\n`
     for (const t of unassigned) {
@@ -421,12 +434,13 @@ async function handleStandupWebhook(data) {
 async function handleCreateTaskWebhook(data) {
   if (!data.title) return '❌ Task title is required'
 
+  const assignees = data.assignees || (data.assignee ? [data.assignee] : [])
   const task = {
     title: data.title,
     description: data.description || '',
     clientId: data.clientId || '',
     projectId: data.projectId || '',
-    assignee: data.assignee || '',
+    assignees,
     status: data.status || 'todo',
     priority: data.priority || 'medium',
     deadline: data.deadline ? admin.firestore.Timestamp.fromDate(new Date(data.deadline)) : null,
@@ -438,5 +452,6 @@ async function handleCreateTaskWebhook(data) {
   }
 
   const ref = await db.collection('tasks').add(task)
-  return `✅ Task created: *${task.title}*${task.assignee ? ` → ${task.assignee}` : ''} (${task.status}, ${task.priority} priority)`
+  const assigneeStr = assignees.length > 0 ? ` → ${assignees.join(', ')}` : ''
+  return `✅ Task created: *${task.title}*${assigneeStr} (${task.status}, ${task.priority} priority)`
 }

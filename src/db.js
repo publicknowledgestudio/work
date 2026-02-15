@@ -84,21 +84,30 @@ export async function createProject(db, data) {
 
 // ===== Tasks =====
 
+// Backward compat: convert old `assignee` string to `assignees` array
+export function normalizeTask(task) {
+  if (!task.assignees) {
+    task.assignees = task.assignee ? [task.assignee] : []
+  }
+  return task
+}
+
 export function subscribeToTasks(db, callback) {
   const q = query(collection(db, 'tasks'), orderBy('updatedAt', 'desc'))
   return onSnapshot(q, (snap) => {
-    const tasks = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+    const tasks = snap.docs.map((d) => normalizeTask({ id: d.id, ...d.data() }))
     callback(tasks)
   })
 }
 
 export async function createTask(db, data) {
+  const assignees = data.assignees || (data.assignee ? [data.assignee] : [])
   return addDoc(collection(db, 'tasks'), {
     title: data.title,
     description: data.description || '',
     clientId: data.clientId || '',
     projectId: data.projectId || '',
-    assignee: data.assignee || '',
+    assignees,
     status: data.status || 'todo',
     priority: data.priority || 'medium',
     deadline: data.deadline ? Timestamp.fromDate(new Date(data.deadline)) : null,

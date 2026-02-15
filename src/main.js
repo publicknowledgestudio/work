@@ -9,7 +9,7 @@ import {
 import { getFirestore } from 'firebase/firestore'
 import { firebaseConfig, TEAM } from './config.js'
 import { loadClients, loadProjects, subscribeToTasks } from './db.js'
-import { renderBoard, renderBoardByAssignee } from './board.js'
+import { renderBoard, renderBoardByAssignee, renderBoardByClient } from './board.js'
 import { renderMyTasks } from './my-tasks.js'
 import { renderStandup } from './standup.js'
 import { renderClients, cleanupClients } from './clients.js'
@@ -22,8 +22,7 @@ export const db = getFirestore(app)
 
 // State
 let currentUser = null
-let currentView = 'board'
-let boardSubView = 'status' // 'status' or 'assignee'
+let currentView = 'board-status'
 let allTasks = []
 let clients = []
 let projects = []
@@ -41,8 +40,6 @@ const navTabs = document.querySelectorAll('.nav-tab')
 const filterClient = document.getElementById('filter-client')
 const filterProject = document.getElementById('filter-project')
 const filterAssignee = document.getElementById('filter-assignee')
-const boardTab = document.getElementById('board-tab')
-const boardDropdown = document.getElementById('board-dropdown')
 
 // Auth
 const provider = new GoogleAuthProvider()
@@ -104,47 +101,11 @@ onAuthStateChanged(auth, async (user) => {
 
 // Navigation
 navTabs.forEach((tab) => {
-  tab.addEventListener('click', (e) => {
-    // For the board tab, toggle the dropdown instead of navigating directly
-    if (tab.dataset.view === 'board') {
-      // If already on board view, just toggle dropdown
-      if (currentView === 'board') {
-        boardDropdown.classList.toggle('show')
-        e.stopPropagation()
-        return
-      }
-    }
+  tab.addEventListener('click', () => {
     currentView = tab.dataset.view
     navTabs.forEach((t) => t.classList.toggle('active', t === tab))
-    boardDropdown.classList.remove('show')
     renderCurrentView()
   })
-})
-
-// Board dropdown items
-boardDropdown.querySelectorAll('.nav-dropdown-item').forEach((item) => {
-  item.addEventListener('click', (e) => {
-    e.stopPropagation()
-    boardSubView = item.dataset.boardView
-    currentView = 'board'
-    navTabs.forEach((t) => t.classList.toggle('active', t === boardTab))
-    boardDropdown.querySelectorAll('.nav-dropdown-item').forEach((i) =>
-      i.classList.toggle('active', i === item)
-    )
-    boardDropdown.classList.remove('show')
-
-    // Update tab label
-    const icon = item.dataset.boardView === 'assignee' ? 'ph-users' : 'ph-list-checks'
-    const label = item.dataset.boardView === 'assignee' ? 'By Assignee' : 'By Status'
-    boardTab.innerHTML = `<i class="ph ${icon}"></i> ${label} <span class="nav-caret">&#9662;</span>`
-
-    renderCurrentView()
-  })
-})
-
-// Close dropdown when clicking outside
-document.addEventListener('click', () => {
-  boardDropdown.classList.remove('show')
 })
 
 // Filters
@@ -185,7 +146,7 @@ function getFilteredTasks() {
 
   if (clientId) tasks = tasks.filter((t) => t.clientId === clientId)
   if (projectId) tasks = tasks.filter((t) => t.projectId === projectId)
-  if (assignee) tasks = tasks.filter((t) => t.assignee === assignee)
+  if (assignee) tasks = tasks.filter((t) => (t.assignees || []).includes(assignee))
 
   return tasks
 }
@@ -200,7 +161,8 @@ function renderCurrentView() {
 
   // Hide filters and new-task button on non-task views
   const filterGroup = document.getElementById('filter-group')
-  const isTaskView = currentView === 'board' || currentView === 'my-tasks'
+  const isBoardView = currentView.startsWith('board-')
+  const isTaskView = isBoardView || currentView === 'my-tasks'
   filterGroup.style.display = isTaskView ? '' : 'none'
   newTaskBtn.style.display = isTaskView ? '' : 'none'
 
@@ -208,12 +170,14 @@ function renderCurrentView() {
   if (currentView !== 'clients') cleanupClients()
 
   switch (currentView) {
-    case 'board':
-      if (boardSubView === 'assignee') {
-        renderBoardByAssignee(mainContent, tasks, ctx)
-      } else {
-        renderBoard(mainContent, tasks, ctx)
-      }
+    case 'board-status':
+      renderBoard(mainContent, tasks, ctx)
+      break
+    case 'board-assignee':
+      renderBoardByAssignee(mainContent, tasks, ctx)
+      break
+    case 'board-client':
+      renderBoardByClient(mainContent, tasks, ctx)
       break
     case 'my-tasks':
       renderMyTasks(mainContent, tasks, currentUser, ctx)

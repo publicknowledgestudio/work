@@ -29,37 +29,35 @@
   <!-- App Shell -->
   <div id="app-shell" class="hidden">
     <header id="app-header">
-      <div class="header-left">
-        <span class="header-logo">PK<span class="header-logo-dot">.</span></span>
-        <nav class="header-nav">
-          <div class="nav-dropdown">
-            <button class="nav-tab active" data-view="board" id="board-tab"><i class="ph ph-kanban"></i> Board <span class="nav-caret">&#9662;</span></button>
-            <div class="nav-dropdown-menu" id="board-dropdown">
-              <button class="nav-dropdown-item active" data-board-view="status"><i class="ph ph-list-checks"></i> By Status</button>
-              <button class="nav-dropdown-item" data-board-view="assignee"><i class="ph ph-users"></i> By Assignee</button>
-            </div>
-          </div>
-          <button class="nav-tab" data-view="my-tasks"><i class="ph ph-user-focus"></i> My Tasks</button>
-          <button class="nav-tab" data-view="standup"><i class="ph ph-lightning"></i> Standup</button>
-          <button class="nav-tab" data-view="clients"><i class="ph ph-buildings"></i> Clients</button>
-        </nav>
-      </div>
-      <div class="header-right">
-        <div class="filter-group" id="filter-group">
-          <select id="filter-client" class="filter-select">
-            <option value="">All Clients</option>
-          </select>
-          <select id="filter-project" class="filter-select">
-            <option value="">All Projects</option>
-          </select>
-          <select id="filter-assignee" class="filter-select">
-            <option value="">Everyone</option>
-          </select>
+      <div class="header-top">
+        <div class="header-left">
+          <span class="header-logo">PK<span class="header-logo-dot">.</span></span>
+          <nav class="header-nav">
+            <button class="nav-tab active" data-view="board-status"><i class="ph-fill ph-list-checks"></i> <span class="nav-label">By Status</span></button>
+            <button class="nav-tab" data-view="board-assignee"><i class="ph-fill ph-users"></i> <span class="nav-label">By Assignee</span></button>
+            <button class="nav-tab" data-view="board-client"><i class="ph-fill ph-buildings"></i> <span class="nav-label">By Client</span></button>
+            <button class="nav-tab" data-view="my-tasks"><i class="ph-fill ph-user-focus"></i> <span class="nav-label">My Tasks</span></button>
+            <button class="nav-tab" data-view="standup"><i class="ph-fill ph-lightning"></i> <span class="nav-label">Standup</span></button>
+            <button class="nav-tab" data-view="clients"><i class="ph-fill ph-buildings"></i> <span class="nav-label">Clients</span></button>
+          </nav>
         </div>
-        <button id="new-task-btn" class="btn-primary"><i class="ph ph-plus"></i> Task</button>
-        <div class="user-menu">
-          <div id="user-avatar" class="avatar-sm"></div>
-          <button id="logout-btn" class="btn-ghost"><i class="ph ph-sign-out"></i> Sign out</button>
+        <div class="header-right">
+          <div class="filter-group" id="filter-group">
+            <select id="filter-client" class="filter-select">
+              <option value="">All Clients</option>
+            </select>
+            <select id="filter-project" class="filter-select">
+              <option value="">All Projects</option>
+            </select>
+            <select id="filter-assignee" class="filter-select">
+              <option value="">Everyone</option>
+            </select>
+          </div>
+          <button id="new-task-btn" class="btn-primary"><i class="ph ph-plus"></i> <span class="btn-label">Task</span></button>
+          <div class="user-menu">
+            <div id="user-avatar" class="avatar-sm"></div>
+            <button id="logout-btn" class="btn-ghost"><i class="ph ph-sign-out"></i> <span class="btn-label">Sign out</span></button>
+          </div>
         </div>
       </div>
     </header>
@@ -94,8 +92,11 @@
         </div>
         <div class="form-grid">
           <div class="form-row">
-            <label class="form-label">Assignee</label>
-            <select id="task-assignee" class="form-select"></select>
+            <label class="form-label">Assignees</label>
+            <div id="task-assignees-container" class="assignee-multi-select">
+              <div id="task-assignees-chips" class="assignee-chips"></div>
+              <div id="task-assignees-dropdown" class="assignee-dropdown"></div>
+            </div>
           </div>
           <div class="form-row">
             <label class="form-label">Status</label>

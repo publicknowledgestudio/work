@@ -84,6 +84,7 @@ export function renderClients(container, ctx) {
   unsubProjects = subscribeToProjects(ctx.db, (projects) => {
     localProjects = projects
     renderProjectsList()
+    renderClientsList() // Re-render clients to update project counts
   })
 
   // Add client
