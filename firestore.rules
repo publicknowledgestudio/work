@@ -1,0 +1,44 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Only authenticated users from publicknowledge.co can read/write
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isTeamMember() {
+      return isAuthenticated() &&
+        request.auth.token.email.matches('.*@publicknowledge[.]co$');
+    }
+
+    // Tasks collection
+    match /tasks/{taskId} {
+      allow read: if isTeamMember();
+      allow create: if isTeamMember();
+      allow update: if isTeamMember();
+      allow delete: if isTeamMember();
+    }
+
+    // Standups collection
+    match /standups/{standupId} {
+      allow read: if isTeamMember();
+      allow create: if isTeamMember();
+      allow update: if isTeamMember() &&
+        resource.data.userEmail == request.auth.token.email;
+    }
+
+    // Sprints collection
+    match /sprints/{sprintId} {
+      allow read: if isTeamMember();
+      allow write: if isTeamMember();
+    }
+
+    // Notes collection (for Granola notes etc)
+    match /notes/{noteId} {
+      allow read: if isTeamMember();
+      allow write: if isTeamMember();
+    }
+  }
+}
