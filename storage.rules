@@ -1,0 +1,15 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function isTeamMember() {
+      return request.auth != null && request.auth.token.email.matches('.*@publicknowledge[.]co');
+    }
+
+    match /client-logos/{allPaths=**} {
+      allow read: if isTeamMember();
+      allow write: if isTeamMember()
+                   && request.resource.size < 2 * 1024 * 1024
+                   && request.resource.contentType.matches('image/.*');
+    }
+  }
+}

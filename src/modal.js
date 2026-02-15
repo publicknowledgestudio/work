@@ -10,6 +10,7 @@ const titleEl = document.getElementById('modal-title')
 
 let currentTask = null
 let currentCtx = null
+let selectedAssignees = []
 
 // Close handlers
 closeBtn.addEventListener('click', close)
@@ -34,7 +35,7 @@ saveBtn.addEventListener('click', async () => {
     description: document.getElementById('task-description').value.trim(),
     clientId: document.getElementById('task-client').value,
     projectId: document.getElementById('task-project').value,
-    assignee: document.getElementById('task-assignee').value,
+    assignees: [...selectedAssignees],
     status: document.getElementById('task-status').value,
     priority: document.getElementById('task-priority').value,
     deadline: document.getElementById('task-deadline').value || null,
@@ -96,18 +97,15 @@ export function openModal(task, ctx) {
     '<option value="">No project</option>' +
     ctx.projects.map((p) => `<option value="${p.id}">${esc(p.name)}</option>`).join('')
 
-  // Populate assignee dropdown
-  const assigneeSelect = document.getElementById('task-assignee')
-  assigneeSelect.innerHTML =
-    '<option value="">Unassigned</option>' +
-    TEAM.map((m) => `<option value="${m.email}">${m.name}</option>`).join('')
+  // Populate assignees multi-select
+  selectedAssignees = task?.assignees ? [...task.assignees] : (task?.assignee ? [task.assignee] : [])
+  renderAssigneeSelector()
 
   // Fill form
   document.getElementById('task-title').value = task?.title || ''
   document.getElementById('task-description').value = task?.description || ''
   clientSelect.value = task?.clientId || ''
   projectSelect.value = task?.projectId || ''
-  assigneeSelect.value = task?.assignee || ''
   document.getElementById('task-status').value = task?.status || ctx.defaultStatus || 'todo'
   document.getElementById('task-priority').value = task?.priority || 'medium'
   document.getElementById('task-deadline').value = formatDateInput(task?.deadline)
@@ -138,10 +136,68 @@ export function openModal(task, ctx) {
   document.getElementById('task-title').focus()
 }
 
+function renderAssigneeSelector() {
+  const chipsEl = document.getElementById('task-assignees-chips')
+  const dropdownEl = document.getElementById('task-assignees-dropdown')
+
+  // Render chips for selected assignees
+  if (selectedAssignees.length > 0) {
+    chipsEl.innerHTML = selectedAssignees.map((email) => {
+      const member = TEAM.find((m) => m.email === email)
+      const name = member?.name || email
+      const color = member?.color || '#6b7280'
+      return `<span class="assignee-chip" data-email="${email}">
+        <span class="assignee-chip-dot" style="background:${color}"></span>
+        ${esc(name)}
+        <button class="assignee-chip-remove" data-email="${email}">&times;</button>
+      </span>`
+    }).join('')
+  } else {
+    chipsEl.innerHTML = '<span class="assignee-placeholder">No assignees</span>'
+  }
+
+  // Render dropdown with checkboxes
+  dropdownEl.innerHTML = TEAM.map((m) => {
+    const checked = selectedAssignees.includes(m.email)
+    const avatarHtml = m.photoURL
+      ? `<img class="avatar-photo-xs" src="${m.photoURL}" alt="${m.name}">`
+      : `<span class="avatar-xs" style="background:${m.color}">${m.name[0]}</span>`
+    return `<label class="assignee-option${checked ? ' selected' : ''}">
+      <input type="checkbox" value="${m.email}" ${checked ? 'checked' : ''}>
+      ${avatarHtml}
+      <span>${m.name}</span>
+    </label>`
+  }).join('')
+
+  // Bind chip remove buttons
+  chipsEl.querySelectorAll('.assignee-chip-remove').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation()
+      selectedAssignees = selectedAssignees.filter((em) => em !== btn.dataset.email)
+      renderAssigneeSelector()
+    })
+  })
+
+  // Bind checkbox toggles
+  dropdownEl.querySelectorAll('input[type="checkbox"]').forEach((cb) => {
+    cb.addEventListener('change', () => {
+      if (cb.checked) {
+        if (!selectedAssignees.includes(cb.value)) {
+          selectedAssignees.push(cb.value)
+        }
+      } else {
+        selectedAssignees = selectedAssignees.filter((em) => em !== cb.value)
+      }
+      renderAssigneeSelector()
+    })
+  })
+}
+
 function close() {
   overlay.classList.add('hidden')
   currentTask = null
   currentCtx = null
+  selectedAssignees = []
 }
 
 function formatDateInput(deadline) {

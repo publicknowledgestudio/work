@@ -11,7 +11,9 @@ import {
   where,
   Timestamp,
   serverTimestamp,
+  getDoc,
 } from 'firebase/firestore'
+import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage'
 
 // ===== Clients =====
 
@@ -23,8 +25,46 @@ export async function loadClients(db) {
 export async function createClient(db, data) {
   return addDoc(collection(db, 'clients'), {
     name: data.name,
+    logoUrl: data.logoUrl || '',
     createdAt: serverTimestamp(),
   })
+}
+
+export async function updateClient(db, clientId, data) {
+  return updateDoc(doc(db, 'clients', clientId), data)
+}
+
+export async function deleteClient(db, clientId) {
+  return deleteDoc(doc(db, 'clients', clientId))
+}
+
+export async function uploadClientLogo(file, clientId) {
+  const storage = getStorage()
+  const storageRef = ref(storage, `client-logos/${clientId}`)
+  await uploadBytes(storageRef, file)
+  return getDownloadURL(storageRef)
+}
+
+export function subscribeToClients(db, callback) {
+  const q = query(collection(db, 'clients'), orderBy('name'))
+  return onSnapshot(q, (snap) => {
+    callback(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
+  })
+}
+
+export function subscribeToProjects(db, callback) {
+  const q = query(collection(db, 'projects'), orderBy('name'))
+  return onSnapshot(q, (snap) => {
+    callback(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
+  })
+}
+
+export async function updateProject(db, projectId, data) {
+  return updateDoc(doc(db, 'projects', projectId), data)
+}
+
+export async function deleteProject(db, projectId) {
+  return deleteDoc(doc(db, 'projects', projectId))
 }
 
 // ===== Projects =====
@@ -44,21 +84,30 @@ export async function createProject(db, data) {
 
 // ===== Tasks =====
 
+// Backward compat: convert old `assignee` string to `assignees` array
+export function normalizeTask(task) {
+  if (!task.assignees) {
+    task.assignees = task.assignee ? [task.assignee] : []
+  }
+  return task
+}
+
 export function subscribeToTasks(db, callback) {
   const q = query(collection(db, 'tasks'), orderBy('updatedAt', 'desc'))
   return onSnapshot(q, (snap) => {
-    const tasks = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+    const tasks = snap.docs.map((d) => normalizeTask({ id: d.id, ...d.data() }))
     callback(tasks)
   })
 }
 
 export async function createTask(db, data) {
+  const assignees = data.assignees || (data.assignee ? [data.assignee] : [])
   return addDoc(collection(db, 'tasks'), {
     title: data.title,
     description: data.description || '',
     clientId: data.clientId || '',
     projectId: data.projectId || '',
-    assignee: data.assignee || '',
+    assignees,
     status: data.status || 'todo',
     priority: data.priority || 'medium',
     deadline: data.deadline ? Timestamp.fromDate(new Date(data.deadline)) : null,

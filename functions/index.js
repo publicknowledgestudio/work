@@ -202,6 +202,12 @@ async function scrumSummary(req, res) {
     .get()
   const openTasks = openSnap.docs.map((d) => ({ id: d.id, ...d.data() }))
 
+  // Helper to get assignees array from task (backward compat)
+  function getAssignees(t) {
+    if (t.assignees) return t.assignees
+    return t.assignee ? [t.assignee] : []
+  }
+
   // Group by assignee
   const team = ['gyan', 'charu', 'sharang', 'anandu']
   const summary = {}
@@ -295,6 +301,7 @@ exports.slackWebhook = onRequest(
   async (req, res) => {
     cors(res)
     if (req.method === 'OPTIONS') return res.status(204).send('')
+
     // Authenticate with same API key
     if (!authenticate(req, res)) return
 
@@ -424,6 +431,7 @@ async function handleStandupWebhook(data) {
   msg += `*Yesterday:* ${standup.yesterday || '_nothing_'}\n`
   msg += `*Today:* ${standup.today || '_nothing_'}\n`
   if (standup.blockers) msg += `*🚧 Blockers:* ${standup.blockers}\n`
+
   return msg
 }
 

@@ -8,6 +8,8 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/src/style.css">
+  <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css">
+  <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/fill/style.css">
 </head>
 <body>
   <!-- Login Screen -->
@@ -27,30 +29,35 @@
   <!-- App Shell -->
   <div id="app-shell" class="hidden">
     <header id="app-header">
-      <div class="header-left">
-        <span class="header-logo">PK<span class="header-logo-dot">.</span></span>
-        <nav class="header-nav">
-          <button class="nav-tab active" data-view="board">Board</button>
-          <button class="nav-tab" data-view="my-tasks">My Tasks</button>
-          <button class="nav-tab" data-view="standup">Standup</button>
-        </nav>
-      </div>
-      <div class="header-right">
-        <div class="filter-group" id="filter-group">
-          <select id="filter-client" class="filter-select">
-            <option value="">All Clients</option>
-          </select>
-          <select id="filter-project" class="filter-select">
-            <option value="">All Projects</option>
-          </select>
-          <select id="filter-assignee" class="filter-select">
-            <option value="">Everyone</option>
-          </select>
+      <div class="header-top">
+        <div class="header-left">
+          <span class="header-logo">PK<span class="header-logo-dot">.</span></span>
+          <nav class="header-nav">
+            <button class="nav-tab active" data-view="board-status"><i class="ph-fill ph-list-checks"></i> <span class="nav-label">By Status</span></button>
+            <button class="nav-tab" data-view="board-assignee"><i class="ph-fill ph-users"></i> <span class="nav-label">By Assignee</span></button>
+            <button class="nav-tab" data-view="board-client"><i class="ph-fill ph-buildings"></i> <span class="nav-label">By Client</span></button>
+            <button class="nav-tab" data-view="my-tasks"><i class="ph-fill ph-user-focus"></i> <span class="nav-label">My Tasks</span></button>
+            <button class="nav-tab" data-view="standup"><i class="ph-fill ph-lightning"></i> <span class="nav-label">Standup</span></button>
+            <button class="nav-tab" data-view="clients"><i class="ph-fill ph-buildings"></i> <span class="nav-label">Clients</span></button>
+          </nav>
         </div>
-        <button id="new-task-btn" class="btn-primary">+ Task</button>
-        <div class="user-menu">
-          <div id="user-avatar" class="avatar-sm"></div>
-          <button id="logout-btn" class="btn-ghost">Sign out</button>
+        <div class="header-right">
+          <div class="filter-group" id="filter-group">
+            <select id="filter-client" class="filter-select">
+              <option value="">All Clients</option>
+            </select>
+            <select id="filter-project" class="filter-select">
+              <option value="">All Projects</option>
+            </select>
+            <select id="filter-assignee" class="filter-select">
+              <option value="">Everyone</option>
+            </select>
+          </div>
+          <button id="new-task-btn" class="btn-primary"><i class="ph ph-plus"></i> <span class="btn-label">Task</span></button>
+          <div class="user-menu">
+            <div id="user-avatar" class="avatar-sm"></div>
+            <button id="logout-btn" class="btn-ghost"><i class="ph ph-sign-out"></i> <span class="btn-label">Sign out</span></button>
+          </div>
         </div>
       </div>
     </header>
@@ -85,8 +92,11 @@
         </div>
         <div class="form-grid">
           <div class="form-row">
-            <label class="form-label">Assignee</label>
-            <select id="task-assignee" class="form-select"></select>
+            <label class="form-label">Assignees</label>
+            <div id="task-assignees-container" class="assignee-multi-select">
+              <div id="task-assignees-chips" class="assignee-chips"></div>
+              <div id="task-assignees-dropdown" class="assignee-dropdown"></div>
+            </div>
           </div>
           <div class="form-row">
             <label class="form-label">Status</label>
@@ -121,7 +131,7 @@
         <div id="task-notes-list" class="notes-list"></div>
       </div>
       <div class="modal-footer">
-        <button id="task-delete" class="btn-danger hidden">Delete</button>
+        <button id="task-delete" class="btn-danger hidden"><i class="ph ph-trash"></i> Delete</button>
         <div class="modal-footer-right">
           <button id="task-cancel" class="btn-ghost">Cancel</button>
           <button id="task-save" class="btn-primary">Save Task</button>

@@ -9,9 +9,10 @@ import {
 import { getFirestore } from 'firebase/firestore'
 import { firebaseConfig, TEAM } from './config.js'
 import { loadClients, loadProjects, subscribeToTasks } from './db.js'
-import { renderBoard } from './board.js'
+import { renderBoard, renderBoardByAssignee, renderBoardByClient } from './board.js'
 import { renderMyTasks } from './my-tasks.js'
 import { renderStandup } from './standup.js'
+import { renderClients, cleanupClients } from './clients.js'
 import { openModal } from './modal.js'
 
 // Initialize Firebase
@@ -21,7 +22,7 @@ export const db = getFirestore(app)
 
 // State
 let currentUser = null
-let currentView = 'board'
+let currentView = 'board-status'
 let allTasks = []
 let clients = []
 let projects = []
@@ -62,11 +63,18 @@ onAuthStateChanged(auth, async (user) => {
     loginScreen.classList.add('hidden')
     appShell.classList.remove('hidden')
 
-    // Set avatar
+    // Set avatar — use Google photo
     const member = TEAM.find((m) => m.email === user.email)
-    const initial = (user.displayName || user.email)[0].toUpperCase()
-    userAvatar.textContent = initial
-    userAvatar.style.background = member?.color || '#6b7280'
+    if (user.photoURL) {
+      userAvatar.innerHTML = `<img class="avatar-photo-sm" src="${user.photoURL}" alt="${user.displayName || ''}">`
+      userAvatar.style.background = 'none'
+      // Store photoURL on the TEAM member for use in board/standup
+      if (member) member.photoURL = user.photoURL
+    } else {
+      const initial = (user.displayName || user.email)[0].toUpperCase()
+      userAvatar.textContent = initial
+      userAvatar.style.background = member?.color || '#6b7280'
+    }
 
     // Load reference data
     clients = await loadClients(db)
@@ -138,24 +146,47 @@ function getFilteredTasks() {
 
   if (clientId) tasks = tasks.filter((t) => t.clientId === clientId)
   if (projectId) tasks = tasks.filter((t) => t.projectId === projectId)
-  if (assignee) tasks = tasks.filter((t) => t.assignee === assignee)
+  if (assignee) tasks = tasks.filter((t) => (t.assignees || []).includes(assignee))
 
   return tasks
 }
 
 function renderCurrentView() {
   const tasks = getFilteredTasks()
-  const ctx = { db, currentUser, clients, projects, allTasks, onSave: renderCurrentView }
+  const ctx = {
+    db, currentUser, clients, projects, allTasks, onSave: renderCurrentView,
+    filterClientId: filterClient.value,
+    filterProjectId: filterProject.value,
+  }
+
+  // Hide filters and new-task button on non-task views
+  const filterGroup = document.getElementById('filter-group')
+  const isBoardView = currentView.startsWith('board-')
+  const isTaskView = isBoardView || currentView === 'my-tasks'
+  filterGroup.style.display = isTaskView ? '' : 'none'
+  newTaskBtn.style.display = isTaskView ? '' : 'none'
+
+  // Clean up clients subscriptions when leaving that view
+  if (currentView !== 'clients') cleanupClients()
 
   switch (currentView) {
-    case 'board':
+    case 'board-status':
       renderBoard(mainContent, tasks, ctx)
+      break
+    case 'board-assignee':
+      renderBoardByAssignee(mainContent, tasks, ctx)
+      break
+    case 'board-client':
+      renderBoardByClient(mainContent, tasks, ctx)
       break
     case 'my-tasks':
       renderMyTasks(mainContent, tasks, currentUser, ctx)
       break
     case 'standup':
-      renderStandup(mainContent, db, currentUser)
+      renderStandup(mainContent, allTasks, ctx)
+      break
+    case 'clients':
+      renderClients(mainContent, ctx)
       break
   }
 }
