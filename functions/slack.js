@@ -67,6 +67,12 @@ const STATUS_EMOJI = {
 
 // ── Helpers ───────────────────────────────────────────────────
 
+// Backward compat: tasks may have `assignee` (string) or `assignees` (array)
+function getAssignees(t) {
+  if (t.assignees) return t.assignees
+  return t.assignee ? [t.assignee] : []
+}
+
 function verifySignature(rawBody, timestamp, signature, secret) {
   if (!timestamp || !signature) return false
   const now = Math.floor(Date.now() / 1000)
@@ -204,7 +210,7 @@ async function handleScrum(channel, token, threadTs) {
   text += `:white_check_mark: *Closed Yesterday:*\n`
   let hasClosed = false
   for (const [, member] of Object.entries(TEAM)) {
-    const tasks = closedTasks.filter((t) => t.assignee === member.email)
+    const tasks = closedTasks.filter((t) => getAssignees(t).includes(member.email))
     if (tasks.length > 0) {
       hasClosed = true
       text += `  ${member.name}: ${tasks.map((t) => t.title).join(', ')}\n`
@@ -215,7 +221,7 @@ async function handleScrum(channel, token, threadTs) {
   // Open tasks per person
   text += `\n:pushpin: *Currently Open:*\n`
   for (const [, member] of Object.entries(TEAM)) {
-    const tasks = openTasks.filter((t) => t.assignee === member.email)
+    const tasks = openTasks.filter((t) => getAssignees(t).includes(member.email))
     if (tasks.length > 0) {
       text += `  *${member.name}* (${tasks.length} task${tasks.length > 1 ? 's' : ''}):\n`
       for (const t of tasks) {
@@ -227,7 +233,7 @@ async function handleScrum(channel, token, threadTs) {
   }
 
   // Unassigned
-  const unassigned = openTasks.filter((t) => !t.assignee)
+  const unassigned = openTasks.filter((t) => getAssignees(t).length === 0)
   if (unassigned.length > 0) {
     text += `  *Unassigned* (${unassigned.length}):\n`
     for (const t of unassigned) {
@@ -268,7 +274,7 @@ async function handleCreateTask(text, channel, token, threadTs) {
   const task = {
     title,
     description: '',
-    assignee: member ? member.email : '',
+    assignees: member ? [member.email] : [],
     status: 'todo',
     priority: priorityMatch ? priorityMatch[1].toLowerCase() : 'medium',
     deadline: deadlineMatch
@@ -355,7 +361,7 @@ async function handleAssign(text, channel, token, threadTs) {
   }
 
   await db.collection('tasks').doc(result.id).update({
-    assignee: member.email,
+    assignees: [member.email],
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
   })
 
@@ -450,7 +456,7 @@ async function handleListTasks(text, channel, userId, token, threadTs) {
     .collection('tasks')
     .where('status', 'in', ['todo', 'in_progress', 'review'])
   if (member) {
-    q = q.where('assignee', '==', member.email)
+    q = q.where('assignees', 'array-contains', member.email)
   }
 
   const snap = await q.get()
@@ -472,9 +478,10 @@ async function handleListTasks(text, channel, userId, token, threadTs) {
   for (const task of tasks) {
     const label = STATUS_LABEL[task.status] || task.status
     const emoji = STATUS_EMOJI[task.status] || ''
+    const taskAssignees = getAssignees(task)
     const assigneeName = member
       ? ''
-      : ` \u2014 ${Object.values(TEAM).find((m) => m.email === task.assignee)?.name || 'Unassigned'}`
+      : ` \u2014 ${taskAssignees.map((e) => Object.values(TEAM).find((m) => m.email === e)?.name).filter(Boolean).join(', ') || 'Unassigned'}`
     response += `  ${emoji} [${label}] ${task.title}${assigneeName}\n`
   }
 
