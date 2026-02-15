@@ -196,7 +196,57 @@ All requests require header: `x-api-key: <CLAUDE_API_KEY>`
 2. Deploy: `firebase deploy --only functions`
 3. Note the function URL for Claude's Slack integration
 
-### 4. Seed Initial Data
+### 4. Slack App Setup
+
+1. Go to [api.slack.com/apps](https://api.slack.com/apps) → **Create New App** → **From scratch**
+2. Name it (e.g. "Claude Scrum Master") and pick your workspace
+
+#### Bot Token Scopes (OAuth & Permissions)
+
+Add these scopes under **Bot Token Scopes**:
+
+| Scope | Purpose |
+|-------|---------|
+| `chat:write` | Post messages to channels |
+| `app_mentions:read` | Receive @mention events |
+| `users:read` | Look up Slack user info to match team members |
+| `users:read.email` | Match Slack users to team member emails |
+
+#### Event Subscriptions
+
+1. Enable **Event Subscriptions**
+2. Set **Request URL** to: `https://<region>-workdotpk-a06dc.cloudfunctions.net/slack`
+3. Subscribe to **bot events**: `app_mention`
+4. Save changes
+
+#### Install to Workspace
+
+1. Go to **Install App** → **Install to Workspace** → Authorize
+2. Copy the **Bot User OAuth Token** (starts with `xoxb-`)
+
+#### Firebase Secrets
+
+Set the Slack secrets in Firebase:
+
+```bash
+firebase functions:secrets:set SLACK_BOT_TOKEN
+# Paste the xoxb-... token
+
+firebase functions:secrets:set SLACK_SIGNING_SECRET
+# Found in Slack app → Basic Information → Signing Secret
+```
+
+#### Deploy & Test
+
+```bash
+firebase deploy --only functions
+
+# In Slack, invite the bot to a channel, then try:
+# @Claude scrum
+# @Claude help
+```
+
+### 5. Seed Initial Data
 
 Add clients and projects via the Firebase Console or using `curl`:
 

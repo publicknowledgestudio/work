@@ -38,6 +38,12 @@ function cors(res) {
   res.set('Access-Control-Allow-Headers', 'Content-Type, x-api-key')
 }
 
+// Helper to get assignees array from task (backward compat with single assignee)
+function getAssignees(t) {
+  if (t.assignees) return t.assignees
+  return t.assignee ? [t.assignee] : []
+}
+
 /**
  * GET  /api/tasks          - List all tasks (optional filters: ?assignee=email&status=todo&clientId=x&projectId=x)
  * POST /api/tasks          - Create a task
@@ -126,6 +132,7 @@ async function createTask(req, res) {
   if (!data.title) return res.status(400).json({ error: 'title is required' })
 
   const assignees = data.assignees || (data.assignee ? [data.assignee] : [])
+
   const task = {
     title: data.title,
     description: data.description || '',
@@ -275,6 +282,9 @@ async function addNote(req, res) {
   res.status(201).json({ id: ref.id })
 }
 
+// === Slack Bot (Events API — interactive @mentions) ===
+exports.slack = require('./slack').slack
+
 // =============================================================
 // Slack Workflow Webhook Endpoint
 // =============================================================
@@ -357,12 +367,6 @@ async function buildScrumMessage() {
     .get()
   const openTasks = openSnap.docs.map((d) => ({ id: d.id, ...d.data() }))
 
-  // Helper to get assignees array from task (backward compat)
-  function getAssignees(t) {
-    if (t.assignees) return t.assignees
-    return t.assignee ? [t.assignee] : []
-  }
-
   const team = ['gyan', 'charu', 'sharang', 'anandu']
   const dateStr = now.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' })
 
@@ -435,6 +439,7 @@ async function handleCreateTaskWebhook(data) {
   if (!data.title) return '❌ Task title is required'
 
   const assignees = data.assignees || (data.assignee ? [data.assignee] : [])
+
   const task = {
     title: data.title,
     description: data.description || '',
