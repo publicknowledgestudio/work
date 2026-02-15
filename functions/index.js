@@ -266,3 +266,6 @@ async function addNote(req, res) {
   const ref = await db.collection('notes').add(note)
   res.status(201).json({ id: ref.id })
 }
+
+// === Slack Bot ===
+exports.slack = require('./slack').slack
