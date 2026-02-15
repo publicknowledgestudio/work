@@ -35,6 +35,18 @@ service cloud.firestore {
       allow write: if isTeamMember();
     }
 
+    // Clients collection
+    match /clients/{clientId} {
+      allow read: if isTeamMember();
+      allow write: if isTeamMember();
+    }
+
+    // Projects collection
+    match /projects/{projectId} {
+      allow read: if isTeamMember();
+      allow write: if isTeamMember();
+    }
+
     // Notes collection (for Granola notes etc)
     match /notes/{noteId} {
       allow read: if isTeamMember();

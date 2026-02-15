@@ -1,101 +1,134 @@
-import { TEAM } from './config.js'
-import { submitStandup, loadStandups } from './db.js'
+import { TEAM, STATUSES, PRIORITIES } from './config.js'
+import { openModal } from './modal.js'
 
-export async function renderStandup(container, db, currentUser) {
+export function renderStandup(container, tasks, ctx) {
+  const now = new Date()
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const yesterdayStart = new Date(todayStart)
+  yesterdayStart.setDate(yesterdayStart.getDate() - 1)
+
+  // Build per-member data
+  const members = TEAM.map((m) => {
+    const memberTasks = tasks.filter((t) => t.assignee === m.email)
+
+    // Closed yesterday: status=done AND closedAt is between yesterdayStart and todayStart
+    const closedYesterday = memberTasks.filter((t) => {
+      if (t.status !== 'done' || !t.closedAt) return false
+      const closed = toDate(t.closedAt)
+      return closed >= yesterdayStart && closed < todayStart
+    })
+
+    // Open today: anything not done
+    const openToday = memberTasks.filter((t) => t.status !== 'done')
+
+    return { ...m, closedYesterday, openToday }
+  })
+
+  // Unassigned open tasks
+  const unassignedOpen = tasks.filter((t) => !t.assignee && t.status !== 'done')
+
   container.innerHTML = `
     <div class="standup-view">
       <div class="standup-header">
         <h2>Daily Standup</h2>
-        <p>Share what you're working on with the team</p>
+        <p>${formatDate(now)}</p>
       </div>
-      <form class="standup-form" id="standup-form">
-        <div class="standup-field">
-          <label>Yesterday — What did you work on?</label>
-          <textarea class="form-textarea" id="standup-yesterday" rows="3" placeholder="I worked on..."></textarea>
-        </div>
-        <div class="standup-field">
-          <label>Today — What's the plan?</label>
-          <textarea class="form-textarea" id="standup-today" rows="3" placeholder="Today I'll be..."></textarea>
-        </div>
-        <div class="standup-field">
-          <label>Blockers — Anything in the way?</label>
-          <textarea class="form-textarea" id="standup-blockers" rows="2" placeholder="No blockers / I'm stuck on..."></textarea>
-        </div>
-        <div class="standup-submit">
-          <button type="submit" class="btn-primary">Submit Standup</button>
-        </div>
-      </form>
-      <div class="standup-history" id="standup-history">
-        <div class="standup-history-title">Recent Standups</div>
-        <div id="standup-list"></div>
+      <div class="standup-members">
+        ${members.map((m) => memberSection(m, ctx)).join('')}
+        ${unassignedOpen.length ? unassignedSection(unassignedOpen, ctx) : ''}
       </div>
-    </div>`
+    </div>
+  `
 
-  // Load history
-  const standups = await loadStandups(db)
-  renderStandupHistory(standups)
-
-  // Submit handler
-  document.getElementById('standup-form').addEventListener('submit', async (e) => {
-    e.preventDefault()
-    const yesterday = document.getElementById('standup-yesterday').value.trim()
-    const today = document.getElementById('standup-today').value.trim()
-    const blockers = document.getElementById('standup-blockers').value.trim()
-
-    if (!yesterday && !today) return
-
-    const member = TEAM.find((m) => m.email === currentUser.email)
-    await submitStandup(db, {
-      userEmail: currentUser.email,
-      userName: member?.name || currentUser.displayName || currentUser.email,
-      yesterday,
-      today,
-      blockers,
+  // Click handlers for task cards
+  container.querySelectorAll('.standup-task').forEach((el) => {
+    el.addEventListener('click', () => {
+      const task = tasks.find((t) => t.id === el.dataset.id)
+      if (task) openModal(task, ctx)
     })
-
-    // Clear form and reload
-    document.getElementById('standup-yesterday').value = ''
-    document.getElementById('standup-today').value = ''
-    document.getElementById('standup-blockers').value = ''
-
-    const updated = await loadStandups(db)
-    renderStandupHistory(updated)
   })
 }
 
-function renderStandupHistory(standups) {
-  const list = document.getElementById('standup-list')
-  if (!list) return
+function memberSection(member, ctx) {
+  const avatarHtml = member.photoURL
+    ? `<img class="avatar-photo-sm" src="${member.photoURL}" alt="${member.name}">`
+    : `<span class="avatar-sm" style="background:${member.color}">${member.name[0]}</span>`
 
-  if (standups.length === 0) {
-    list.innerHTML = '<div class="empty-state"><div class="empty-state-text">No standups yet</div></div>'
-    return
-  }
-
-  list.innerHTML = standups
-    .map((s) => {
-      const member = TEAM.find((m) => m.email === s.userEmail)
-      const date = s.date?.toDate
-        ? s.date.toDate().toLocaleDateString('en-IN', {
-            weekday: 'short',
-            month: 'short',
-            day: 'numeric',
-          })
-        : ''
-
-      return `
-      <div class="standup-entry">
-        <div class="standup-entry-header">
-          <span class="avatar-xs" style="background:${member?.color || '#6b7280'}">${(member?.name || s.userName || '?')[0]}</span>
-          <span class="standup-entry-name">${esc(s.userName || s.userEmail)}</span>
-          <span class="standup-entry-date">${date}</span>
+  return `
+    <div class="standup-member">
+      <div class="standup-member-header">
+        ${avatarHtml}
+        <span class="standup-member-name">${member.name}</span>
+      </div>
+      ${member.closedYesterday.length ? `
+        <div class="standup-section">
+          <div class="standup-section-label"><i class="ph-fill ph-check-circle" style="color:#22c55e"></i> Completed yesterday</div>
+          ${member.closedYesterday.map((t) => standupTask(t, ctx, true)).join('')}
         </div>
-        ${s.yesterday ? `<div class="standup-entry-section"><div class="standup-entry-label">Yesterday</div><div class="standup-entry-text">${esc(s.yesterday)}</div></div>` : ''}
-        ${s.today ? `<div class="standup-entry-section"><div class="standup-entry-label">Today</div><div class="standup-entry-text">${esc(s.today)}</div></div>` : ''}
-        ${s.blockers ? `<div class="standup-entry-section"><div class="standup-entry-label">Blockers</div><div class="standup-entry-text">${esc(s.blockers)}</div></div>` : ''}
-      </div>`
-    })
-    .join('')
+      ` : ''}
+      ${member.openToday.length ? `
+        <div class="standup-section">
+          <div class="standup-section-label"><i class="ph-fill ph-circle-dashed" style="color:#f59e0b"></i> Working on today</div>
+          ${member.openToday.map((t) => standupTask(t, ctx, false)).join('')}
+        </div>
+      ` : ''}
+      ${!member.closedYesterday.length && !member.openToday.length ? `
+        <div class="standup-empty">No tasks assigned</div>
+      ` : ''}
+    </div>
+  `
+}
+
+function unassignedSection(tasks, ctx) {
+  return `
+    <div class="standup-member">
+      <div class="standup-member-header">
+        <span class="avatar-sm" style="background:#6b7280">?</span>
+        <span class="standup-member-name">Unassigned</span>
+      </div>
+      <div class="standup-section">
+        <div class="standup-section-label">Open tasks</div>
+        ${tasks.map((t) => standupTask(t, ctx, false)).join('')}
+      </div>
+    </div>
+  `
+}
+
+function standupTask(task, ctx, isDone) {
+  const priority = PRIORITIES.find((p) => p.id === task.priority)
+  const status = STATUSES.find((s) => s.id === task.status)
+  const client = ctx.clients.find((c) => c.id === task.clientId)
+  const project = ctx.projects.find((p) => p.id === task.projectId)
+
+  const clientLogo = client?.logoUrl
+    ? `<img class="client-logo-xs" src="${client.logoUrl}" alt="${esc(client.name)}" title="${esc(client.name)}">`
+    : ''
+
+  return `
+    <div class="standup-task${isDone ? ' done' : ''}" data-id="${task.id}">
+      <div class="standup-task-left">
+        <span class="priority-dot" style="background:${priority?.color || '#6b7280'}"></span>
+        <span class="standup-task-title${isDone ? ' line-through' : ''}">${esc(task.title)}</span>
+      </div>
+      <div class="standup-task-right">
+        ${clientLogo}
+        ${client ? `<span class="task-tag">${esc(client.name)}</span>` : ''}
+        ${project ? `<span class="task-tag">${esc(project.name)}</span>` : ''}
+        <span class="task-tag" style="color:${status?.color || '#6b7280'}">${status?.label || task.status}</span>
+      </div>
+    </div>
+  `
+}
+
+function formatDate(d) {
+  return d.toLocaleDateString('en-IN', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
+}
+
+function toDate(ts) {
+  if (!ts) return null
+  if (ts.toDate) return ts.toDate()
+  if (ts.seconds) return new Date(ts.seconds * 1000)
+  return new Date(ts)
 }
 
 function esc(str) {
