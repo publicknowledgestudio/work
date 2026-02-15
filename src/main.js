@@ -9,7 +9,7 @@ import {
 import { getFirestore } from 'firebase/firestore'
 import { firebaseConfig, TEAM } from './config.js'
 import { loadClients, loadProjects, subscribeToTasks } from './db.js'
-import { renderBoard, renderBoardByAssignee, renderBoardByClient } from './board.js'
+import { renderBoard, renderBoardByAssignee, renderBoardByClient, renderBoardByProject } from './board.js'
 import { renderMyTasks } from './my-tasks.js'
 import { renderStandup } from './standup.js'
 import { renderClients, cleanupClients } from './clients.js'
@@ -37,9 +37,19 @@ const userAvatar = document.getElementById('user-avatar')
 const mainContent = document.getElementById('main-content')
 const newTaskBtn = document.getElementById('new-task-btn')
 const navTabs = document.querySelectorAll('.nav-tab')
-const filterClient = document.getElementById('filter-client')
-const filterProject = document.getElementById('filter-project')
 const filterAssignee = document.getElementById('filter-assignee')
+
+// Header project filter picker refs
+const hfPicker = document.getElementById('header-project-filter')
+const hfDisplay = document.getElementById('header-filter-display')
+const hfText = document.getElementById('header-filter-text')
+const hfClear = document.getElementById('header-filter-clear')
+const hfDropdown = document.getElementById('header-filter-dropdown')
+const hfSearch = document.getElementById('header-filter-search')
+const hfList = document.getElementById('header-filter-list')
+
+// Filter state — multiselect: set of selected project IDs
+let selectedFilterIds = new Set()
 
 // Auth
 const provider = new GoogleAuthProvider()
@@ -109,9 +119,174 @@ navTabs.forEach((tab) => {
 })
 
 // Filters
-filterClient.addEventListener('change', renderCurrentView)
-filterProject.addEventListener('change', renderCurrentView)
 filterAssignee.addEventListener('change', renderCurrentView)
+
+// Header project filter picker (multiselect)
+hfDisplay.addEventListener('click', () => {
+  if (hfDropdown.classList.contains('hidden')) {
+    openHeaderFilter()
+  } else {
+    closeHeaderFilter()
+  }
+})
+
+hfClear.addEventListener('click', (e) => {
+  e.stopPropagation()
+  selectedFilterIds.clear()
+  updateHeaderFilterDisplay()
+  renderCurrentView()
+})
+
+hfSearch.addEventListener('input', () => {
+  renderHeaderFilterList(hfSearch.value.trim())
+})
+
+document.addEventListener('mousedown', (e) => {
+  if (!hfPicker.contains(e.target) && !hfDropdown.classList.contains('hidden')) {
+    closeHeaderFilter()
+  }
+})
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !hfDropdown.classList.contains('hidden')) {
+    closeHeaderFilter()
+  }
+})
+
+function openHeaderFilter() {
+  hfDropdown.classList.remove('hidden')
+  hfPicker.classList.add('open')
+  hfSearch.value = ''
+  renderHeaderFilterList('')
+  hfSearch.focus()
+}
+
+function closeHeaderFilter() {
+  hfDropdown.classList.add('hidden')
+  hfPicker.classList.remove('open')
+}
+
+function toggleProject(projectId) {
+  if (selectedFilterIds.has(projectId)) {
+    selectedFilterIds.delete(projectId)
+  } else {
+    selectedFilterIds.add(projectId)
+  }
+  updateHeaderFilterDisplay()
+  renderHeaderFilterList(hfSearch.value.trim())
+  renderCurrentView()
+}
+
+function toggleClient(clientId) {
+  const clientProjects = projects.filter((p) => p.clientId === clientId)
+  const allSelected = clientProjects.length > 0 && clientProjects.every((p) => selectedFilterIds.has(p.id))
+  clientProjects.forEach((p) => {
+    if (allSelected) {
+      selectedFilterIds.delete(p.id)
+    } else {
+      selectedFilterIds.add(p.id)
+    }
+  })
+  updateHeaderFilterDisplay()
+  renderHeaderFilterList(hfSearch.value.trim())
+  renderCurrentView()
+}
+
+function updateHeaderFilterDisplay() {
+  const count = selectedFilterIds.size
+  if (count === 0) {
+    hfText.textContent = 'All Projects'
+    hfText.classList.remove('active')
+    hfClear.classList.add('hidden')
+  } else if (count === 1) {
+    const id = [...selectedFilterIds][0]
+    const project = projects.find((p) => p.id === id)
+    hfText.textContent = project?.name || '1 project'
+    hfText.classList.add('active')
+    hfClear.classList.remove('hidden')
+  } else {
+    hfText.textContent = `${count} projects`
+    hfText.classList.add('active')
+    hfClear.classList.remove('hidden')
+  }
+}
+
+function renderHeaderFilterList(query) {
+  const q = query.toLowerCase()
+
+  // Build grouped list: clients with their projects
+  const grouped = []
+
+  clients.forEach((client) => {
+    const clientProjects = projects
+      .filter((p) => p.clientId === client.id)
+      .filter((p) => !q || p.name.toLowerCase().includes(q) || client.name.toLowerCase().includes(q))
+    if (clientProjects.length > 0) {
+      grouped.push({ client, projects: clientProjects })
+    }
+  })
+
+  // Projects without a client
+  const uncategorized = projects
+    .filter((p) => !p.clientId)
+    .filter((p) => !q || p.name.toLowerCase().includes(q))
+
+  let html = ''
+
+  // Client groups with projects
+  grouped.forEach((group) => {
+    const logoHtml = group.client.logoUrl
+      ? `<img src="${group.client.logoUrl}" alt="${esc(group.client.name)}">`
+      : ''
+    const allClientSelected = group.projects.length > 0 && group.projects.every((p) => selectedFilterIds.has(p.id))
+    const someClientSelected = !allClientSelected && group.projects.some((p) => selectedFilterIds.has(p.id))
+    const checkClass = allClientSelected ? 'checked' : (someClientSelected ? 'partial' : '')
+    html += `<div class="header-filter-client" data-client-id="${group.client.id}">
+      <span class="header-filter-checkbox ${checkClass}"></span>
+      ${logoHtml}
+      <span class="header-filter-client-name">${esc(group.client.name)}</span>
+    </div>`
+    group.projects.forEach((p) => {
+      const isSelected = selectedFilterIds.has(p.id)
+      html += `<div class="header-filter-option${isSelected ? ' selected' : ''}" data-project-id="${p.id}">
+        <span class="header-filter-checkbox ${isSelected ? 'checked' : ''}"></span>
+        ${esc(p.name)}
+      </div>`
+    })
+  })
+
+  // Uncategorized projects
+  if (uncategorized.length > 0) {
+    html += `<div class="header-filter-group-label">Uncategorized</div>`
+    uncategorized.forEach((p) => {
+      const isSelected = selectedFilterIds.has(p.id)
+      html += `<div class="header-filter-option${isSelected ? ' selected' : ''}" data-project-id="${p.id}">
+        <span class="header-filter-checkbox ${isSelected ? 'checked' : ''}"></span>
+        ${esc(p.name)}
+      </div>`
+    })
+  }
+
+  if (!html || (q && grouped.length === 0 && uncategorized.length === 0)) {
+    html = '<div class="header-filter-no-results">No matching projects</div>'
+  }
+
+  hfList.innerHTML = html
+
+  // Bind project clicks
+  hfList.querySelectorAll('.header-filter-option').forEach((opt) => {
+    opt.addEventListener('click', () => {
+      toggleProject(opt.dataset.projectId)
+    })
+  })
+
+  // Bind client clicks (toggle all projects in client)
+  hfList.querySelectorAll('.header-filter-client').forEach((opt) => {
+    opt.addEventListener('click', () => {
+      toggleClient(opt.dataset.clientId)
+    })
+  })
+}
 
 // New Task
 newTaskBtn.addEventListener('click', () => {
@@ -119,33 +294,29 @@ newTaskBtn.addEventListener('click', () => {
 })
 
 function populateFilters() {
-  // Client filter
-  filterClient.innerHTML = '<option value="">All Clients</option>'
-  clients.forEach((c) => {
-    filterClient.innerHTML += `<option value="${c.id}">${c.name}</option>`
-  })
-
-  // Project filter
-  filterProject.innerHTML = '<option value="">All Projects</option>'
-  projects.forEach((p) => {
-    filterProject.innerHTML += `<option value="${p.id}">${p.name}</option>`
-  })
-
   // Assignee filter
   filterAssignee.innerHTML = '<option value="">Everyone</option>'
   TEAM.forEach((m) => {
     filterAssignee.innerHTML += `<option value="${m.email}">${m.name}</option>`
   })
+  // Reset header filter state
+  selectedFilterIds.clear()
+  updateHeaderFilterDisplay()
+}
+
+function esc(str) {
+  const el = document.createElement('span')
+  el.textContent = str || ''
+  return el.innerHTML
 }
 
 function getFilteredTasks() {
   let tasks = allTasks
-  const clientId = filterClient.value
-  const projectId = filterProject.value
   const assignee = filterAssignee.value
 
-  if (clientId) tasks = tasks.filter((t) => t.clientId === clientId)
-  if (projectId) tasks = tasks.filter((t) => t.projectId === projectId)
+  if (selectedFilterIds.size > 0) {
+    tasks = tasks.filter((t) => selectedFilterIds.has(t.projectId))
+  }
   if (assignee) tasks = tasks.filter((t) => (t.assignees || []).includes(assignee))
 
   return tasks
@@ -155,8 +326,8 @@ function renderCurrentView() {
   const tasks = getFilteredTasks()
   const ctx = {
     db, currentUser, clients, projects, allTasks, onSave: renderCurrentView,
-    filterClientId: filterClient.value,
-    filterProjectId: filterProject.value,
+    filterClientId: '',
+    filterProjectId: '',
   }
 
   // Hide filters and new-task button on non-task views
@@ -178,6 +349,9 @@ function renderCurrentView() {
       break
     case 'board-client':
       renderBoardByClient(mainContent, tasks, ctx)
+      break
+    case 'board-project':
+      renderBoardByProject(mainContent, tasks, ctx)
       break
     case 'my-tasks':
       renderMyTasks(mainContent, tasks, currentUser, ctx)

@@ -1,5 +1,5 @@
 import { TEAM, PRIORITIES } from './config.js'
-import { createTask, updateTask, deleteTask } from './db.js'
+import { createTask, updateTask, deleteTask, createProject } from './db.js'
 
 const overlay = document.getElementById('task-modal')
 const closeBtn = document.getElementById('modal-close')
@@ -11,6 +11,18 @@ const titleEl = document.getElementById('modal-title')
 let currentTask = null
 let currentCtx = null
 let selectedAssignees = []
+let selectedProjectId = ''
+let selectedClientId = ''
+
+// Project picker DOM refs
+const pickerEl = document.getElementById('project-picker')
+const pickerDisplay = document.getElementById('project-picker-display')
+const pickerText = document.getElementById('project-picker-text')
+const pickerClear = document.getElementById('project-picker-clear')
+const pickerDropdown = document.getElementById('project-picker-dropdown')
+const pickerSearch = document.getElementById('project-picker-search')
+const pickerList = document.getElementById('project-picker-list')
+const pickerCreate = document.getElementById('project-picker-create')
 
 // Close handlers
 closeBtn.addEventListener('click', close)
@@ -19,7 +31,14 @@ overlay.addEventListener('click', (e) => {
   if (e.target === overlay) close()
 })
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') close()
+  if (e.key === 'Escape') {
+    if (!pickerDropdown.classList.contains('hidden')) {
+      closeProjectPicker()
+      e.stopPropagation()
+    } else {
+      close()
+    }
+  }
 })
 
 // Save handler
@@ -33,8 +52,8 @@ saveBtn.addEventListener('click', async () => {
   const data = {
     title,
     description: document.getElementById('task-description').value.trim(),
-    clientId: document.getElementById('task-client').value,
-    projectId: document.getElementById('task-project').value,
+    clientId: selectedClientId,
+    projectId: selectedProjectId,
     assignees: [...selectedAssignees],
     status: document.getElementById('task-status').value,
     priority: document.getElementById('task-priority').value,
@@ -78,24 +97,164 @@ deleteBtn.addEventListener('click', async () => {
   }
 })
 
+// ===== Project Picker =====
+
+pickerDisplay.addEventListener('click', () => {
+  if (pickerDropdown.classList.contains('hidden')) {
+    openProjectPicker()
+  } else {
+    closeProjectPicker()
+  }
+})
+
+pickerClear.addEventListener('click', (e) => {
+  e.stopPropagation()
+  selectProject('', '')
+})
+
+pickerSearch.addEventListener('input', () => {
+  renderProjectList(pickerSearch.value.trim())
+})
+
+// Close picker when clicking outside
+document.addEventListener('mousedown', (e) => {
+  if (!pickerEl.contains(e.target) && !pickerDropdown.classList.contains('hidden')) {
+    closeProjectPicker()
+  }
+})
+
+function openProjectPicker() {
+  pickerDropdown.classList.remove('hidden')
+  pickerEl.classList.add('open')
+  pickerSearch.value = ''
+  renderProjectList('')
+  pickerSearch.focus()
+}
+
+function closeProjectPicker() {
+  pickerDropdown.classList.add('hidden')
+  pickerEl.classList.remove('open')
+}
+
+function selectProject(projectId, clientId) {
+  selectedProjectId = projectId
+  selectedClientId = clientId
+  document.getElementById('task-project').value = projectId
+  document.getElementById('task-client').value = clientId
+  updatePickerDisplay()
+  closeProjectPicker()
+}
+
+function updatePickerDisplay() {
+  if (selectedProjectId) {
+    const project = currentCtx.projects.find((p) => p.id === selectedProjectId)
+    const client = selectedClientId ? currentCtx.clients.find((c) => c.id === selectedClientId) : null
+    const label = client ? `${client.name} / ${project?.name || ''}` : (project?.name || '')
+    pickerText.textContent = label
+    pickerText.classList.remove('placeholder')
+    pickerClear.classList.remove('hidden')
+  } else {
+    pickerText.textContent = 'Select project...'
+    pickerText.classList.add('placeholder')
+    pickerClear.classList.add('hidden')
+  }
+}
+
+function renderProjectList(query) {
+  const q = query.toLowerCase()
+  const clients = currentCtx.clients || []
+  const projects = currentCtx.projects || []
+
+  // Group projects by client
+  const grouped = []
+
+  // Projects with a client
+  clients.forEach((client) => {
+    const clientProjects = projects
+      .filter((p) => p.clientId === client.id)
+      .filter((p) => !q || p.name.toLowerCase().includes(q) || client.name.toLowerCase().includes(q))
+    if (clientProjects.length > 0) {
+      grouped.push({ client, projects: clientProjects })
+    }
+  })
+
+  // Projects without a client
+  const uncategorized = projects
+    .filter((p) => !p.clientId)
+    .filter((p) => !q || p.name.toLowerCase().includes(q))
+  if (uncategorized.length > 0) {
+    grouped.push({ client: null, projects: uncategorized })
+  }
+
+  // Render
+  if (grouped.length === 0 && !q) {
+    pickerList.innerHTML = '<div class="project-picker-no-results">No projects yet</div>'
+  } else if (grouped.length === 0) {
+    pickerList.innerHTML = '<div class="project-picker-no-results">No matching projects</div>'
+  } else {
+    pickerList.innerHTML = grouped.map((group) => {
+      const logoHtml = group.client?.logoUrl
+        ? `<img src="${group.client.logoUrl}" alt="${esc(group.client.name)}">`
+        : ''
+      const groupLabel = group.client
+        ? `<div class="project-picker-group-label">${logoHtml} ${esc(group.client.name)}</div>`
+        : `<div class="project-picker-group-label">Uncategorized</div>`
+      const options = group.projects.map((p) => {
+        const isSelected = p.id === selectedProjectId
+        return `<div class="project-picker-option${isSelected ? ' selected' : ''}" data-project-id="${p.id}" data-client-id="${p.clientId || ''}">
+          ${esc(p.name)}
+          ${isSelected ? '<i class="ph ph-check"></i>' : ''}
+        </div>`
+      }).join('')
+      return `<div class="project-picker-group">${groupLabel}${options}</div>`
+    }).join('')
+  }
+
+  // Bind option clicks
+  pickerList.querySelectorAll('.project-picker-option').forEach((opt) => {
+    opt.addEventListener('click', () => {
+      selectProject(opt.dataset.projectId, opt.dataset.clientId)
+    })
+  })
+
+  // Show/hide create button
+  if (q) {
+    const exactMatch = projects.some((p) => p.name.toLowerCase() === q)
+    if (!exactMatch) {
+      pickerCreate.classList.remove('hidden')
+      pickerCreate.innerHTML = `<button class="project-picker-create-btn" type="button">
+        <i class="ph ph-plus"></i> Create "${esc(query)}"
+      </button>`
+      pickerCreate.querySelector('button').addEventListener('click', async () => {
+        const newDoc = await createProject(currentCtx.db, { name: query })
+        const newProject = { id: newDoc.id, name: query, clientId: '' }
+        currentCtx.projects.push(newProject)
+        selectProject(newDoc.id, '')
+      })
+    } else {
+      pickerCreate.classList.add('hidden')
+      pickerCreate.innerHTML = ''
+    }
+  } else {
+    pickerCreate.classList.add('hidden')
+    pickerCreate.innerHTML = ''
+  }
+}
+
+// ===== Open Modal =====
+
 export function openModal(task, ctx) {
   currentTask = task
   currentCtx = ctx
 
-  titleEl.textContent = task ? 'Edit Task' : 'New Task'
+  titleEl.textContent = task ? (task.title || 'Edit Task') : 'New Task'
   deleteBtn.classList.toggle('hidden', !task)
 
-  // Populate client dropdown
-  const clientSelect = document.getElementById('task-client')
-  clientSelect.innerHTML =
-    '<option value="">No client</option>' +
-    ctx.clients.map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join('')
-
-  // Populate project dropdown
-  const projectSelect = document.getElementById('task-project')
-  projectSelect.innerHTML =
-    '<option value="">No project</option>' +
-    ctx.projects.map((p) => `<option value="${p.id}">${esc(p.name)}</option>`).join('')
+  // Set project picker state
+  selectedProjectId = task?.projectId || ''
+  selectedClientId = task?.clientId || ''
+  updatePickerDisplay()
+  closeProjectPicker()
 
   // Populate assignees multi-select
   selectedAssignees = task?.assignees ? [...task.assignees] : (task?.assignee ? [task.assignee] : [])
@@ -104,8 +263,6 @@ export function openModal(task, ctx) {
   // Fill form
   document.getElementById('task-title').value = task?.title || ''
   document.getElementById('task-description').value = task?.description || ''
-  clientSelect.value = task?.clientId || ''
-  projectSelect.value = task?.projectId || ''
   document.getElementById('task-status').value = task?.status || ctx.defaultStatus || 'todo'
   document.getElementById('task-priority').value = task?.priority || 'medium'
   document.getElementById('task-deadline').value = formatDateInput(task?.deadline)
@@ -195,9 +352,12 @@ function renderAssigneeSelector() {
 
 function close() {
   overlay.classList.add('hidden')
+  closeProjectPicker()
   currentTask = null
   currentCtx = null
   selectedAssignees = []
+  selectedProjectId = ''
+  selectedClientId = ''
 }
 
 function formatDateInput(deadline) {

@@ -307,6 +307,150 @@ export function renderBoardByClient(container, tasks, ctx) {
   })
 }
 
+export function renderBoardByProject(container, tasks, ctx) {
+  // Build columns: only projects with >1 task, plus "No Project"
+  const noProjectTasks = tasks.filter((t) => !t.projectId)
+  const columns = ctx.projects
+    .map((p) => ({
+      id: p.id,
+      name: p.name,
+      clientId: p.clientId || '',
+      tasks: tasks.filter((t) => t.projectId === p.id),
+    }))
+    .filter((col) => col.tasks.length > 0)
+    .map((col) => ({ id: col.id, name: col.name, clientId: col.clientId }))
+
+  if (noProjectTasks.length > 0) {
+    columns.push({ id: '', name: 'No Project', clientId: '' })
+  }
+
+  container.innerHTML = `<div class="board">${columns.map(
+    (col) => {
+      const colTasks = tasks.filter((t) => (t.projectId || '') === col.id)
+      const client = col.clientId ? ctx.clients.find((c) => c.id === col.clientId) : null
+      const clientLogo = client?.logoUrl
+        ? `<img class="client-logo-xs" src="${client.logoUrl}" alt="${esc(client.name)}">`
+        : `<span class="column-dot" style="background:#6b7280"></span>`
+      return `
+      <div class="column" data-project-id="${col.id}">
+        <div class="column-header">
+          ${clientLogo}
+          <span class="column-label">${esc(col.name)}</span>
+          <span class="column-count">${colTasks.length}</span>
+        </div>
+        <div class="column-tasks" data-project-id="${col.id}">
+          ${sortUrgentFirst(colTasks).map((t) => taskCardByProject(t, ctx)).join('')}
+        </div>
+        <input class="column-add-input" data-project-id="${col.id}" placeholder="+ Add task" type="text">
+      </div>
+    `
+    }
+  ).join('')}</div>`
+
+  // Click handlers
+  container.querySelectorAll('.task-card').forEach((card) => {
+    card.addEventListener('click', () => {
+      const task = tasks.find((t) => t.id === card.dataset.id)
+      if (task) openModal(task, ctx)
+    })
+  })
+
+  // Inline add-task inputs
+  container.querySelectorAll('.column-add-input').forEach((input) => {
+    input.addEventListener('keydown', async (e) => {
+      if (e.key === 'Enter') {
+        const title = input.value.trim()
+        if (!title) return
+        input.disabled = true
+        const projectId = input.dataset.projectId
+        const project = ctx.projects.find((p) => p.id === projectId)
+        await createTask(ctx.db, {
+          title,
+          projectId: projectId,
+          clientId: project?.clientId || ctx.filterClientId || '',
+          createdBy: ctx.currentUser?.email || '',
+        })
+        input.value = ''
+        input.disabled = false
+        input.focus()
+      }
+      if (e.key === 'Escape') {
+        input.value = ''
+        input.blur()
+      }
+    })
+  })
+
+  // Drag and drop — reassign project on drop
+  container.querySelectorAll('.task-card').forEach((card) => {
+    card.addEventListener('dragstart', (e) => {
+      e.dataTransfer.setData('text/plain', card.dataset.id)
+      e.dataTransfer.effectAllowed = 'move'
+      card.classList.add('dragging')
+    })
+    card.addEventListener('dragend', () => {
+      card.classList.remove('dragging')
+      container.querySelectorAll('.column-tasks').forEach((col) => col.classList.remove('drag-over'))
+    })
+  })
+
+  container.querySelectorAll('.column-tasks').forEach((col) => {
+    col.addEventListener('dragover', (e) => {
+      e.preventDefault()
+      e.dataTransfer.dropEffect = 'move'
+      col.classList.add('drag-over')
+    })
+    col.addEventListener('dragleave', (e) => {
+      if (!col.contains(e.relatedTarget)) {
+        col.classList.remove('drag-over')
+      }
+    })
+    col.addEventListener('drop', async (e) => {
+      e.preventDefault()
+      col.classList.remove('drag-over')
+      const taskId = e.dataTransfer.getData('text/plain')
+      const newProjectId = col.dataset.projectId
+      const task = tasks.find((t) => t.id === taskId)
+      if (task && (task.projectId || '') !== newProjectId) {
+        await updateTask(ctx.db, taskId, { projectId: newProjectId })
+      }
+    })
+  })
+}
+
+function taskCardByProject(task, ctx) {
+  const client = ctx.clients.find((c) => c.id === task.clientId)
+  const status = STATUSES.find((s) => s.id === task.status)
+  const deadlineStr = formatDeadline(task.deadline)
+  const isOverdue = task.deadline && task.status !== 'done' && toDate(task.deadline) < new Date()
+  const isDone = task.status === 'done'
+
+  const clientLogo = client?.logoUrl
+    ? `<img class="client-logo-xs" src="${client.logoUrl}" alt="${esc(client.name)}" title="${esc(client.name)}">`
+    : ''
+
+  return `
+    <div class="task-card${isDone ? ' done' : ''}" data-id="${task.id}" draggable="true">
+      <div class="task-card-header">
+        ${statusIcon(task.status)}
+        ${task.priority === 'urgent' ? '<i class="ph-fill ph-warning urgent-icon"></i>' : ''}
+        <span class="task-card-title">${esc(task.title)}</span>
+      </div>
+      <div class="task-card-meta">
+        <div class="task-card-tags">
+          ${clientLogo}
+          ${client ? `<span class="task-tag">${esc(client.name)}</span>` : ''}
+          ${status ? `<span class="task-tag" style="color:${status.color}">${status.label}</span>` : ''}
+        </div>
+        <div style="display:flex;align-items:center;gap:6px;">
+          ${deadlineStr ? `<span class="task-card-deadline${isOverdue ? ' overdue' : ''}">${deadlineStr}</span>` : ''}
+          ${avatarStack(task.assignees)}
+        </div>
+      </div>
+    </div>
+  `
+}
+
 function avatarStack(assignees) {
   if (!assignees || assignees.length === 0) return ''
   const members = assignees.map((email) => TEAM.find((m) => m.email === email)).filter(Boolean)

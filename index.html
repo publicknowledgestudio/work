@@ -36,19 +36,25 @@
             <button class="nav-tab active" data-view="board-status"><i class="ph-fill ph-list-checks"></i> <span class="nav-label">By Status</span></button>
             <button class="nav-tab" data-view="board-assignee"><i class="ph-fill ph-users"></i> <span class="nav-label">By Assignee</span></button>
             <button class="nav-tab" data-view="board-client"><i class="ph-fill ph-buildings"></i> <span class="nav-label">By Client</span></button>
+            <button class="nav-tab" data-view="board-project"><i class="ph-fill ph-folders"></i> <span class="nav-label">By Project</span></button>
             <button class="nav-tab" data-view="my-tasks"><i class="ph-fill ph-user-focus"></i> <span class="nav-label">My Tasks</span></button>
             <button class="nav-tab" data-view="standup"><i class="ph-fill ph-lightning"></i> <span class="nav-label">Standup</span></button>
-            <button class="nav-tab" data-view="clients"><i class="ph-fill ph-buildings"></i> <span class="nav-label">Clients</span></button>
+            <button class="nav-tab" data-view="clients"><i class="ph-fill ph-buildings"></i> <span class="nav-label">Projects</span></button>
           </nav>
         </div>
         <div class="header-right">
           <div class="filter-group" id="filter-group">
-            <select id="filter-client" class="filter-select">
-              <option value="">All Clients</option>
-            </select>
-            <select id="filter-project" class="filter-select">
-              <option value="">All Projects</option>
-            </select>
+            <div id="header-project-filter" class="header-filter-picker">
+              <div class="header-filter-display" id="header-filter-display">
+                <span class="header-filter-text" id="header-filter-text">All Projects</span>
+                <button class="header-filter-clear hidden" id="header-filter-clear" type="button">&times;</button>
+                <i class="ph ph-caret-down header-filter-arrow"></i>
+              </div>
+              <div class="header-filter-dropdown hidden" id="header-filter-dropdown">
+                <input type="text" class="header-filter-search" id="header-filter-search" placeholder="Search projects...">
+                <div class="header-filter-list" id="header-filter-list"></div>
+              </div>
+            </div>
             <select id="filter-assignee" class="filter-select">
               <option value="">Everyone</option>
             </select>
@@ -80,15 +86,22 @@
           <label class="form-label">Description</label>
           <textarea id="task-description" class="form-textarea" rows="3" placeholder="Add details..."></textarea>
         </div>
-        <div class="form-grid">
-          <div class="form-row">
-            <label class="form-label">Client</label>
-            <select id="task-client" class="form-select"></select>
+        <div class="form-row">
+          <label class="form-label">Project</label>
+          <div id="project-picker" class="project-picker">
+            <div class="project-picker-display" id="project-picker-display">
+              <span class="project-picker-text" id="project-picker-text">Select project...</span>
+              <button class="project-picker-clear hidden" id="project-picker-clear" type="button">&times;</button>
+              <i class="ph ph-caret-down project-picker-arrow"></i>
+            </div>
+            <div class="project-picker-dropdown hidden" id="project-picker-dropdown">
+              <input type="text" class="project-picker-search" id="project-picker-search" placeholder="Search or create project...">
+              <div class="project-picker-list" id="project-picker-list"></div>
+              <div class="project-picker-create hidden" id="project-picker-create"></div>
+            </div>
           </div>
-          <div class="form-row">
-            <label class="form-label">Project</label>
-            <select id="task-project" class="form-select"></select>
-          </div>
+          <input type="hidden" id="task-client">
+          <input type="hidden" id="task-project">
         </div>
         <div class="form-grid">
           <div class="form-row">
