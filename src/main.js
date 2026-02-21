@@ -15,6 +15,7 @@ import { renderMyDay } from './my-day.js'
 import { renderStandup } from './standup.js'
 import { renderClients, cleanupClients } from './clients.js'
 import { renderPeople, cleanupPeople } from './people.js'
+import { renderTimesheets } from './timesheets.js'
 import { openModal } from './modal.js'
 import { initContextMenu } from './context-menu.js'
 import { setAccessToken, clearAccessToken } from './calendar.js'
@@ -501,6 +502,9 @@ function renderCurrentView() {
       break
     case 'people':
       renderPeople(mainContent, ctx)
+      break
+    case 'timesheets':
+      renderTimesheets(mainContent, allTasks, ctx)
       break
   }
 }
