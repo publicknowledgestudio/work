@@ -1,4 +1,4 @@
-import { TEAM, PRIORITIES } from './config.js'
+import { TEAM, PRIORITIES, STATUSES } from './config.js'
 import { createTask, updateTask, deleteTask, createProject } from './db.js'
 
 const overlay = document.getElementById('task-modal')
@@ -97,6 +97,26 @@ deleteBtn.addEventListener('click', async () => {
   }
 })
 
+// ===== Status Pills =====
+const statusPillsEl = document.getElementById('task-status-pills')
+const statusHiddenEl = document.getElementById('task-status')
+
+statusPillsEl.addEventListener('click', (e) => {
+  const pill = e.target.closest('.status-pill')
+  if (!pill) return
+  const status = pill.dataset.status
+  statusHiddenEl.value = status
+  statusPillsEl.querySelectorAll('.status-pill').forEach((p) => p.classList.remove('active'))
+  pill.classList.add('active')
+})
+
+function setStatusPill(status) {
+  statusHiddenEl.value = status
+  statusPillsEl.querySelectorAll('.status-pill').forEach((p) => {
+    p.classList.toggle('active', p.dataset.status === status)
+  })
+}
+
 // ===== Project Picker =====
 
 pickerDisplay.addEventListener('click', () => {
@@ -149,7 +169,7 @@ function updatePickerDisplay() {
   if (selectedProjectId) {
     const project = currentCtx.projects.find((p) => p.id === selectedProjectId)
     const client = selectedClientId ? currentCtx.clients.find((c) => c.id === selectedClientId) : null
-    const label = client ? `${client.name} / ${project?.name || ''}` : (project?.name || '')
+    const label = client ? `${client.name} · ${project?.name || ''}` : (project?.name || '')
     pickerText.textContent = label
     pickerText.classList.remove('placeholder')
     pickerClear.classList.remove('hidden')
@@ -263,7 +283,7 @@ export function openModal(task, ctx) {
   // Fill form
   document.getElementById('task-title').value = task?.title || ''
   document.getElementById('task-description').value = task?.description || ''
-  document.getElementById('task-status').value = task?.status || ctx.defaultStatus || 'todo'
+  setStatusPill(task?.status || ctx.defaultStatus || 'todo')
   document.getElementById('task-priority').value = task?.priority || 'medium'
   document.getElementById('task-deadline').value = formatDateInput(task?.deadline)
   document.getElementById('task-notes').value = ''
@@ -294,49 +314,22 @@ export function openModal(task, ctx) {
 }
 
 function renderAssigneeSelector() {
-  const chipsEl = document.getElementById('task-assignees-chips')
-  const dropdownEl = document.getElementById('task-assignees-dropdown')
+  const rowEl = document.getElementById('task-assignees-inline')
 
-  // Render chips for selected assignees
-  if (selectedAssignees.length > 0) {
-    chipsEl.innerHTML = selectedAssignees.map((email) => {
-      const member = TEAM.find((m) => m.email === email)
-      const name = member?.name || email
-      const color = member?.color || '#6b7280'
-      return `<span class="assignee-chip" data-email="${email}">
-        <span class="assignee-chip-dot" style="background:${color}"></span>
-        ${esc(name)}
-        <button class="assignee-chip-remove" data-email="${email}">&times;</button>
-      </span>`
-    }).join('')
-  } else {
-    chipsEl.innerHTML = '<span class="assignee-placeholder">No assignees</span>'
-  }
-
-  // Render dropdown with checkboxes
-  dropdownEl.innerHTML = TEAM.map((m) => {
+  rowEl.innerHTML = TEAM.map((m) => {
     const checked = selectedAssignees.includes(m.email)
     const avatarHtml = m.photoURL
       ? `<img class="avatar-photo-xs" src="${m.photoURL}" alt="${m.name}">`
       : `<span class="avatar-xs" style="background:${m.color}">${m.name[0]}</span>`
-    return `<label class="assignee-option${checked ? ' selected' : ''}">
+    return `<label class="assignee-inline-item${checked ? ' selected' : ''}">
       <input type="checkbox" value="${m.email}" ${checked ? 'checked' : ''}>
       ${avatarHtml}
-      <span>${m.name}</span>
+      <span>${esc(m.name)}</span>
     </label>`
   }).join('')
 
-  // Bind chip remove buttons
-  chipsEl.querySelectorAll('.assignee-chip-remove').forEach((btn) => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation()
-      selectedAssignees = selectedAssignees.filter((em) => em !== btn.dataset.email)
-      renderAssigneeSelector()
-    })
-  })
-
   // Bind checkbox toggles
-  dropdownEl.querySelectorAll('input[type="checkbox"]').forEach((cb) => {
+  rowEl.querySelectorAll('input[type="checkbox"]').forEach((cb) => {
     cb.addEventListener('change', () => {
       if (cb.checked) {
         if (!selectedAssignees.includes(cb.value)) {

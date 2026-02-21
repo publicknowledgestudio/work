@@ -7,13 +7,17 @@ import {
   signOut,
 } from 'firebase/auth'
 import { getFirestore } from 'firebase/firestore'
-import { firebaseConfig, TEAM } from './config.js'
-import { loadClients, loadProjects, subscribeToTasks } from './db.js'
+import { firebaseConfig, TEAM, STATUSES } from './config.js'
+import { loadClients, loadProjects, loadPeople, subscribeToTasks, saveUserProfile, loadUserProfiles, updateTask } from './db.js'
 import { renderBoard, renderBoardByAssignee, renderBoardByClient, renderBoardByProject } from './board.js'
 import { renderMyTasks } from './my-tasks.js'
+import { renderMyDay } from './my-day.js'
 import { renderStandup } from './standup.js'
 import { renderClients, cleanupClients } from './clients.js'
+import { renderPeople, cleanupPeople } from './people.js'
 import { openModal } from './modal.js'
+import { initContextMenu } from './context-menu.js'
+import { setAccessToken, clearAccessToken } from './calendar.js'
 
 // Initialize Firebase
 const app = initializeApp(firebaseConfig)
@@ -22,10 +26,11 @@ export const db = getFirestore(app)
 
 // State
 let currentUser = null
-let currentView = 'board-status'
+let currentView = 'my-day'
 let allTasks = []
 let clients = []
 let projects = []
+let people = []
 let unsubTasks = null
 
 // DOM refs
@@ -51,13 +56,106 @@ const hfList = document.getElementById('header-filter-list')
 // Filter state — multiselect: set of selected project IDs
 let selectedFilterIds = new Set()
 
+// Context menu (right-click on any task card)
+initContextMenu(() => ({
+  db, currentUser, clients, projects, allTasks, onSave: renderCurrentView,
+}))
+
+// Status icon cycle click (delegated globally)
+const STATUS_CYCLE = ['todo', 'in_progress', 'review', 'done']
+let statusToastTimer = null
+let statusToastTaskId = null
+let statusOriginal = null // status before first click in a burst
+
+document.addEventListener('click', async (e) => {
+  const btn = e.target.closest('[data-action="cycle-status"]')
+  if (!btn) return
+  e.stopPropagation()
+  e.preventDefault()
+
+  // Find the task card ancestor (data-id for my-day cards, data-task-id for time grid blocks)
+  const card = btn.closest('[data-id]') || btn.closest('[data-task-id]')
+  if (!card) return
+  const taskId = card.dataset.id || card.dataset.taskId
+  const task = allTasks.find((t) => t.id === taskId)
+  if (!task) return
+
+  // Capture original status on first click of a burst
+  if (!statusToastTimer || statusToastTaskId !== taskId) {
+    statusOriginal = task.status
+  }
+
+  const idx = STATUS_CYCLE.indexOf(task.status)
+  const nextStatus = STATUS_CYCLE[(idx + 1) % STATUS_CYCLE.length]
+
+  btn.disabled = true
+  await updateTask(db, taskId, { status: nextStatus })
+
+  // Debounced toast — wait 500ms after last click to show final status
+  if (statusToastTimer) clearTimeout(statusToastTimer)
+  statusToastTaskId = taskId
+  const origForUndo = statusOriginal
+  statusToastTimer = setTimeout(() => {
+    const freshTask = allTasks.find((t) => t.id === statusToastTaskId)
+    if (freshTask) {
+      const statusLabel = STATUSES.find((s) => s.id === freshTask.status)?.label || freshTask.status
+      showStatusToast(freshTask.title, statusLabel, statusToastTaskId, origForUndo)
+    }
+    statusToastTimer = null
+    statusToastTaskId = null
+    statusOriginal = null
+  }, 500)
+})
+
+// Status toast with Undo
+function showStatusToast(title, statusLabel, taskId, previousStatus) {
+  let toast = document.getElementById('status-toast')
+  if (!toast) {
+    toast = document.createElement('div')
+    toast.id = 'status-toast'
+    toast.className = 'status-toast'
+    document.body.appendChild(toast)
+  }
+
+  const prevLabel = STATUSES.find((s) => s.id === previousStatus)?.label || previousStatus
+  toast.innerHTML = `
+    <span class="status-toast-msg">${esc(title)} → <strong>${statusLabel}</strong></span>
+    <button class="status-toast-undo" id="status-toast-undo">Undo</button>
+  `
+  toast.classList.remove('hide')
+  toast.classList.add('show')
+
+  // Wire undo
+  const undoBtn = toast.querySelector('#status-toast-undo')
+  undoBtn.addEventListener('click', async () => {
+    undoBtn.disabled = true
+    undoBtn.textContent = '...'
+    await updateTask(db, taskId, { status: previousStatus })
+    toast.classList.remove('show')
+    toast.classList.add('hide')
+  })
+
+  // Auto-hide after 4s (longer to give time to undo)
+  clearTimeout(toast._hideTimer)
+  toast._hideTimer = setTimeout(() => {
+    toast.classList.remove('show')
+    toast.classList.add('hide')
+  }, 4000)
+}
+
 // Auth
 const provider = new GoogleAuthProvider()
 provider.setCustomParameters({ hd: 'publicknowledge.co' })
+provider.addScope('https://www.googleapis.com/auth/calendar.events.readonly')
 
 loginBtn.addEventListener('click', async () => {
   try {
-    await signInWithPopup(auth, provider)
+    const result = await signInWithPopup(auth, provider)
+    // Capture Google OAuth access token for Calendar API
+    const credential = GoogleAuthProvider.credentialFromResult(result)
+    if (credential?.accessToken) {
+      setAccessToken(credential.accessToken)
+    }
   } catch (err) {
     if (err.code !== 'auth/popup-closed-by-user') {
       console.error('Login error:', err)
@@ -65,7 +163,27 @@ loginBtn.addEventListener('click', async () => {
   }
 })
 
-logoutBtn.addEventListener('click', () => signOut(auth))
+logoutBtn.addEventListener('click', () => {
+  clearAccessToken()
+  signOut(auth)
+})
+
+// Re-authenticate to get a fresh Google Calendar access token
+export async function reconnectCalendar() {
+  try {
+    const result = await signInWithPopup(auth, provider)
+    const credential = GoogleAuthProvider.credentialFromResult(result)
+    if (credential?.accessToken) {
+      setAccessToken(credential.accessToken)
+      return true
+    }
+  } catch (err) {
+    if (err.code !== 'auth/popup-closed-by-user') {
+      console.error('Calendar reconnect error:', err)
+    }
+  }
+  return false
+}
 
 onAuthStateChanged(auth, async (user) => {
   if (user) {
@@ -80,15 +198,29 @@ onAuthStateChanged(auth, async (user) => {
       userAvatar.style.background = 'none'
       // Store photoURL on the TEAM member for use in board/standup
       if (member) member.photoURL = user.photoURL
+      // Persist photo to Firestore so other users can see it
+      saveUserProfile(db, user.email, {
+        photoURL: user.photoURL,
+        displayName: user.displayName || '',
+      })
     } else {
       const initial = (user.displayName || user.email)[0].toUpperCase()
       userAvatar.textContent = initial
       userAvatar.style.background = member?.color || '#6b7280'
     }
 
+    // Load all user profiles and apply photos to TEAM members
+    const profiles = await loadUserProfiles(db)
+    TEAM.forEach((m) => {
+      if (profiles[m.email]?.photoURL) {
+        m.photoURL = profiles[m.email].photoURL
+      }
+    })
+
     // Load reference data
     clients = await loadClients(db)
     projects = await loadProjects(db)
+    people = await loadPeople(db)
     populateFilters()
 
     // Subscribe to tasks (real-time)
@@ -325,20 +457,22 @@ function getFilteredTasks() {
 function renderCurrentView() {
   const tasks = getFilteredTasks()
   const ctx = {
-    db, currentUser, clients, projects, allTasks, onSave: renderCurrentView,
+    db, currentUser, clients, projects, people, allTasks, onSave: renderCurrentView,
     filterClientId: '',
     filterProjectId: '',
+    reconnectCalendar,
   }
 
   // Hide filters and new-task button on non-task views
   const filterGroup = document.getElementById('filter-group')
   const isBoardView = currentView.startsWith('board-')
-  const isTaskView = isBoardView || currentView === 'my-tasks'
+  const isTaskView = isBoardView || currentView === 'my-tasks' || currentView === 'my-day'
   filterGroup.style.display = isTaskView ? '' : 'none'
   newTaskBtn.style.display = isTaskView ? '' : 'none'
 
-  // Clean up clients subscriptions when leaving that view
+  // Clean up subscriptions when leaving views
   if (currentView !== 'clients') cleanupClients()
+  if (currentView !== 'people') cleanupPeople()
 
   switch (currentView) {
     case 'board-status':
@@ -353,6 +487,9 @@ function renderCurrentView() {
     case 'board-project':
       renderBoardByProject(mainContent, tasks, ctx)
       break
+    case 'my-day':
+      renderMyDay(mainContent, tasks, currentUser, ctx)
+      break
     case 'my-tasks':
       renderMyTasks(mainContent, tasks, currentUser, ctx)
       break
@@ -361,6 +498,9 @@ function renderCurrentView() {
       break
     case 'clients':
       renderClients(mainContent, ctx)
+      break
+    case 'people':
+      renderPeople(mainContent, ctx)
       break
   }
 }

@@ -10,9 +10,12 @@ export function renderMyTasks(container, tasks, currentUser, ctx) {
   const myEmail = currentUser?.email
   const myTasks = tasks.filter((t) => (t.assignees || []).includes(myEmail))
 
+  // Custom order for My Tasks: backlog goes after done
+  const myTaskStatuses = [...STATUSES.filter((s) => s.id !== 'backlog'), ...STATUSES.filter((s) => s.id === 'backlog')]
+
   container.innerHTML = `
     <div class="my-tasks">
-      ${STATUSES.map((s) => {
+      ${myTaskStatuses.map((s) => {
         const items = sortUrgentFirst(myTasks.filter((t) => t.status === s.id))
         return `
           <div class="my-tasks-section" data-status="${s.id}">
@@ -33,9 +36,10 @@ export function renderMyTasks(container, tasks, currentUser, ctx) {
       }).join('')}
     </div>`
 
-  // Click handlers
+  // Click handlers (skip if status-btn was clicked)
   container.querySelectorAll('.my-task-row').forEach((row) => {
-    row.addEventListener('click', () => {
+    row.addEventListener('click', (e) => {
+      if (e.target.closest('.status-btn')) return
       const task = myTasks.find((t) => t.id === row.dataset.id)
       if (task) openModal(task, ctx)
     })
@@ -93,10 +97,10 @@ function taskRow(task, ctx) {
     <div class="my-task-row${isDone ? ' done' : ''}" data-id="${task.id}" draggable="true">
       ${statusIcon(task.status)}
       ${task.priority === 'urgent' ? '<i class="ph-fill ph-warning urgent-icon"></i>' : ''}
+      ${clientLogo}
+      ${project ? `<span class="my-task-project">${esc(project.name)}</span>` : ''}
       <span class="my-task-title">${esc(task.title)}</span>
       <div class="my-task-meta">
-        ${clientLogo}
-        ${project ? `<span class="my-task-project">${esc(project.name)}</span>` : ''}
         ${deadlineStr ? `<span class="my-task-deadline${isOverdue ? ' overdue' : ''}">${deadlineStr}</span>` : ''}
       </div>
     </div>`
@@ -105,15 +109,15 @@ function taskRow(task, ctx) {
 function statusIcon(status) {
   switch (status) {
     case 'done':
-      return '<i class="ph-fill ph-check-circle status-icon done"></i>'
+      return '<button class="status-btn" data-action="cycle-status" title="Done — click to cycle"><i class="ph-fill ph-check-circle status-icon done"></i></button>'
     case 'todo':
-      return '<i class="ph ph-circle status-icon todo"></i>'
+      return '<button class="status-btn" data-action="cycle-status" title="To Do — click to start"><i class="ph ph-circle status-icon todo"></i></button>'
     case 'in_progress':
-      return '<i class="ph-fill ph-circle-half status-icon in-progress"></i>'
+      return '<button class="status-btn" data-action="cycle-status" title="In Progress — click to advance"><i class="ph-fill ph-circle-half status-icon in-progress"></i></button>'
     case 'review':
-      return '<i class="ph-fill ph-eye status-icon review"></i>'
+      return '<button class="status-btn" data-action="cycle-status" title="Review — click to complete"><i class="ph-fill ph-caret-circle-double-right status-icon review"></i></button>'
     default: // backlog
-      return '<i class="ph ph-circle-dashed status-icon backlog"></i>'
+      return '<i class="ph-fill ph-prohibit status-icon backlog"></i>'
   }
 }
 

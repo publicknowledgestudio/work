@@ -33,13 +33,15 @@
         <div class="header-left">
           <span class="header-logo">PK<span class="header-logo-dot">.</span></span>
           <nav class="header-nav">
-            <button class="nav-tab active" data-view="board-status"><i class="ph-fill ph-list-checks"></i> <span class="nav-label">By Status</span></button>
-            <button class="nav-tab" data-view="board-assignee"><i class="ph-fill ph-users"></i> <span class="nav-label">By Assignee</span></button>
-            <button class="nav-tab" data-view="board-client"><i class="ph-fill ph-buildings"></i> <span class="nav-label">By Client</span></button>
-            <button class="nav-tab" data-view="board-project"><i class="ph-fill ph-folders"></i> <span class="nav-label">By Project</span></button>
+            <button class="nav-tab active" data-view="my-day"><i class="ph-fill ph-sun"></i> <span class="nav-label">My Day</span></button>
             <button class="nav-tab" data-view="my-tasks"><i class="ph-fill ph-user-focus"></i> <span class="nav-label">My Tasks</span></button>
+            <button class="nav-tab" data-view="board-status"><i class="ph-fill ph-list-checks"></i> <span class="nav-label">Backlog</span></button>
+            <button class="nav-tab" data-view="board-assignee"><i class="ph-fill ph-users"></i> <span class="nav-label">Team</span></button>
+            <button class="nav-tab" data-view="board-client"><i class="ph-fill ph-buildings"></i> <span class="nav-label">Clients</span></button>
+            <button class="nav-tab" data-view="board-project"><i class="ph-fill ph-folders"></i> <span class="nav-label">Projects</span></button>
             <button class="nav-tab" data-view="standup"><i class="ph-fill ph-lightning"></i> <span class="nav-label">Standup</span></button>
-            <button class="nav-tab" data-view="clients"><i class="ph-fill ph-buildings"></i> <span class="nav-label">Projects</span></button>
+            <button class="nav-tab" data-view="clients"><i class="ph-fill ph-gear"></i> <span class="nav-label">Manage</span></button>
+            <button class="nav-tab" data-view="people"><i class="ph-fill ph-address-book"></i> <span class="nav-label">People</span></button>
           </nav>
         </div>
         <div class="header-right">
@@ -103,24 +105,35 @@
           <input type="hidden" id="task-client">
           <input type="hidden" id="task-project">
         </div>
-        <div class="form-grid">
-          <div class="form-row">
-            <label class="form-label">Assignees</label>
-            <div id="task-assignees-container" class="assignee-multi-select">
-              <div id="task-assignees-chips" class="assignee-chips"></div>
-              <div id="task-assignees-dropdown" class="assignee-dropdown"></div>
-            </div>
+        <div class="form-row">
+          <label class="form-label">Status</label>
+          <div id="task-status-pills" class="status-pills">
+            <button type="button" class="status-pill" data-status="backlog">
+              <i class="ph ph-prohibit"></i>
+              <span>Backlog</span>
+            </button>
+            <button type="button" class="status-pill" data-status="todo">
+              <i class="ph ph-circle"></i>
+              <span>To do</span>
+            </button>
+            <button type="button" class="status-pill" data-status="in_progress">
+              <i class="ph ph-circle-half"></i>
+              <span>In Progress</span>
+            </button>
+            <button type="button" class="status-pill" data-status="review">
+              <i class="ph ph-fast-forward"></i>
+              <span>Review</span>
+            </button>
+            <button type="button" class="status-pill" data-status="done">
+              <i class="ph ph-check-circle"></i>
+              <span>Done</span>
+            </button>
           </div>
-          <div class="form-row">
-            <label class="form-label">Status</label>
-            <select id="task-status" class="form-select">
-              <option value="backlog">Backlog</option>
-              <option value="todo">To Do</option>
-              <option value="in_progress">In Progress</option>
-              <option value="review">Review</option>
-              <option value="done">Done</option>
-            </select>
-          </div>
+          <input type="hidden" id="task-status" value="todo">
+        </div>
+        <div class="form-row">
+          <label class="form-label">Assignees</label>
+          <div id="task-assignees-inline" class="assignee-inline-row"></div>
         </div>
         <div class="form-grid">
           <div class="form-row">

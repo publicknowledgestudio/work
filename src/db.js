@@ -2,6 +2,7 @@ import {
   collection,
   doc,
   addDoc,
+  setDoc,
   updateDoc,
   deleteDoc,
   getDocs,
@@ -14,6 +15,24 @@ import {
   getDoc,
 } from 'firebase/firestore'
 import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage'
+
+// ===== User Profiles =====
+
+export async function saveUserProfile(db, email, data) {
+  return setDoc(doc(db, 'users', email), {
+    ...data,
+    updatedAt: serverTimestamp(),
+  }, { merge: true })
+}
+
+export async function loadUserProfiles(db) {
+  const snap = await getDocs(collection(db, 'users'))
+  const profiles = {}
+  snap.docs.forEach((d) => {
+    profiles[d.id] = d.data()
+  })
+  return profiles
+}
 
 // ===== Clients =====
 
@@ -79,6 +98,67 @@ export async function createProject(db, data) {
     name: data.name,
     clientId: data.clientId || '',
     createdAt: serverTimestamp(),
+  })
+}
+
+// ===== People =====
+
+export function subscribeToPeople(db, callback) {
+  const q = query(collection(db, 'people'), orderBy('name'))
+  return onSnapshot(q, (snap) => {
+    callback(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
+  })
+}
+
+export async function loadPeople(db) {
+  const snap = await getDocs(query(collection(db, 'people'), orderBy('name')))
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+}
+
+export async function createPerson(db, data) {
+  return addDoc(collection(db, 'people'), {
+    name: data.name || '',
+    email: data.email || '',
+    type: data.type || 'external',
+    role: data.role || '',
+    organization: data.organization || '',
+    clientIds: data.clientIds || [],
+    tags: data.tags || [],
+    content: data.content || '',
+    contentUpdatedAt: null,
+    contentUpdatedBy: '',
+    photoURL: data.photoURL || '',
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  })
+}
+
+export async function updatePerson(db, personId, data) {
+  return updateDoc(doc(db, 'people', personId), {
+    ...data,
+    updatedAt: serverTimestamp(),
+  })
+}
+
+export async function deletePerson(db, personId) {
+  return deleteDoc(doc(db, 'people', personId))
+}
+
+export async function updatePersonContent(db, personId, content, updatedBy) {
+  return updateDoc(doc(db, 'people', personId), {
+    content,
+    contentUpdatedAt: serverTimestamp(),
+    contentUpdatedBy: updatedBy,
+    updatedAt: serverTimestamp(),
+  })
+}
+
+export async function updateProjectContent(db, projectId, content, updatedBy) {
+  return updateDoc(doc(db, 'projects', projectId), {
+    content,
+    contentUpdatedAt: serverTimestamp(),
+    contentUpdatedBy: updatedBy,
+    updatedAt: serverTimestamp(),
   })
 }
 
@@ -160,6 +240,30 @@ export async function loadStandups(db, limit = 20) {
   const q = query(collection(db, 'standups'), orderBy('date', 'desc'))
   const snap = await getDocs(q)
   return snap.docs.slice(0, limit).map((d) => ({ id: d.id, ...d.data() }))
+}
+
+// ===== Daily Focus =====
+
+export async function loadDailyFocus(db, userEmail, dateStr) {
+  const docId = `${userEmail}_${dateStr}`
+  const snap = await getDoc(doc(db, 'dailyFocus', docId))
+  if (snap.exists()) {
+    const data = snap.data()
+    return {
+      taskIds: data.taskIds || [],
+      timeBlocks: data.timeBlocks || [],
+    }
+  }
+  return { taskIds: [], timeBlocks: [] }
+}
+
+export async function saveDailyFocus(db, userEmail, dateStr, taskIds, timeBlocks) {
+  const docId = `${userEmail}_${dateStr}`
+  const data = { userEmail, date: dateStr, taskIds, updatedAt: serverTimestamp() }
+  if (timeBlocks !== undefined) {
+    data.timeBlocks = timeBlocks
+  }
+  return setDoc(doc(db, 'dailyFocus', docId), data, { merge: true })
 }
 
 // ===== Notes (Granola / meeting notes) =====

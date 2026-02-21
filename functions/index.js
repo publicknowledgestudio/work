@@ -90,14 +90,45 @@ exports.api = onRequest({ secrets: [CLAUDE_API_KEY] }, async (req, res) => {
       }
     }
 
+    // --- PEOPLE ---
+    if (segments[0] === 'people') {
+      if (req.method === 'GET' && segments.length === 1) {
+        return await listPeople(req, res)
+      }
+      if (req.method === 'GET' && segments.length === 2) {
+        return await getPerson(req, res, segments[1])
+      }
+      if (req.method === 'POST' && segments.length === 1) {
+        return await createPersonHandler(req, res)
+      }
+      if (req.method === 'PATCH' && segments.length === 2) {
+        return await updatePersonHandler(req, res, segments[1])
+      }
+      if (req.method === 'DELETE' && segments.length === 2) {
+        return await deletePersonHandler(req, res, segments[1])
+      }
+      // Page content: /people/:id/content
+      if (segments.length === 3 && segments[2] === 'content') {
+        if (req.method === 'GET') return await getPageContent(req, res, 'people', segments[1])
+        if (req.method === 'PATCH') return await updatePageContent(req, res, 'people', segments[1])
+      }
+    }
+
     // --- CLIENTS ---
     if (segments[0] === 'clients' && req.method === 'GET') {
       return await listClients(req, res)
     }
 
     // --- PROJECTS ---
-    if (segments[0] === 'projects' && req.method === 'GET') {
-      return await listProjects(req, res)
+    if (segments[0] === 'projects') {
+      if (req.method === 'GET' && segments.length === 1) {
+        return await listProjects(req, res)
+      }
+      // Page content: /projects/:id/content
+      if (segments.length === 3 && segments[2] === 'content') {
+        if (req.method === 'GET') return await getPageContent(req, res, 'projects', segments[1])
+        if (req.method === 'PATCH') return await updatePageContent(req, res, 'projects', segments[1])
+      }
     }
 
     // --- PARSE NOTES ---
@@ -266,6 +297,88 @@ async function listProjects(req, res) {
   res.json({ projects: snap.docs.map((d) => ({ id: d.id, ...d.data() })) })
 }
 
+// === People Handlers ===
+
+async function listPeople(req, res) {
+  let q = db.collection('people')
+  if (req.query.type) q = q.where('type', '==', req.query.type)
+  if (req.query.clientId) q = q.where('clientIds', 'array-contains', req.query.clientId)
+  q = q.orderBy('name')
+
+  const snap = await q.get()
+  const people = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+  res.json({ people })
+}
+
+async function getPerson(req, res, personId) {
+  const doc = await db.collection('people').doc(personId).get()
+  if (!doc.exists) return res.status(404).json({ error: 'Person not found' })
+  res.json({ id: doc.id, ...doc.data() })
+}
+
+async function createPersonHandler(req, res) {
+  const data = req.body
+  if (!data.name) return res.status(400).json({ error: 'name is required' })
+
+  const person = {
+    name: data.name,
+    email: data.email || '',
+    type: data.type || 'external',
+    role: data.role || '',
+    organization: data.organization || '',
+    clientIds: data.clientIds || [],
+    tags: data.tags || [],
+    content: data.content || '',
+    contentUpdatedAt: null,
+    contentUpdatedBy: '',
+    photoURL: data.photoURL || '',
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  }
+
+  const ref = await db.collection('people').add(person)
+  res.status(201).json({ id: ref.id, ...person })
+}
+
+async function updatePersonHandler(req, res, personId) {
+  const data = req.body
+  const update = { ...data, updatedAt: admin.firestore.FieldValue.serverTimestamp() }
+  await db.collection('people').doc(personId).update(update)
+  res.json({ id: personId, updated: true })
+}
+
+async function deletePersonHandler(req, res, personId) {
+  await db.collection('people').doc(personId).delete()
+  res.json({ id: personId, deleted: true })
+}
+
+// === Page Content Handlers (generic for people + projects) ===
+
+async function getPageContent(req, res, collectionName, docId) {
+  const doc = await db.collection(collectionName).doc(docId).get()
+  if (!doc.exists) return res.status(404).json({ error: 'Not found' })
+  const data = doc.data()
+  res.json({
+    id: doc.id,
+    content: data.content || '',
+    contentUpdatedAt: data.contentUpdatedAt || null,
+    contentUpdatedBy: data.contentUpdatedBy || '',
+  })
+}
+
+async function updatePageContent(req, res, collectionName, docId) {
+  const { content, updatedBy } = req.body
+  if (content === undefined) return res.status(400).json({ error: 'content is required' })
+
+  await db.collection(collectionName).doc(docId).update({
+    content,
+    contentUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    contentUpdatedBy: updatedBy || '',
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  })
+  res.json({ id: docId, updated: true })
+}
+
 // === Notes (Granola / meeting notes) ===
 
 async function addNote(req, res) {
@@ -283,7 +396,10 @@ async function addNote(req, res) {
 }
 
 // === Slack Bot (Events API — interactive @mentions) ===
-exports.slack = require('./slack').slack
+// Disabled: Asty (OpenClaw, socket mode) now handles all Slack interaction.
+// The old Events API bot required SLACK_BOT_TOKEN and SLACK_SIGNING_SECRET
+// secrets which are no longer provisioned, blocking all function deployments.
+// exports.slack = require('./slack').slack
 
 // =============================================================
 // Slack Workflow Webhook Endpoint

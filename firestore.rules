@@ -47,10 +47,31 @@ service cloud.firestore {
       allow write: if isTeamMember();
     }
 
+    // People collection
+    match /people/{personId} {
+      allow read: if isTeamMember();
+      allow write: if isTeamMember();
+    }
+
     // Notes collection (for Granola notes etc)
     match /notes/{noteId} {
       allow read: if isTeamMember();
       allow write: if isTeamMember();
+    }
+
+    // Daily focus (per-user daily task curation)
+    match /dailyFocus/{docId} {
+      allow read: if isTeamMember();
+      allow create: if isTeamMember();
+      allow update: if isTeamMember() &&
+        resource.data.userEmail == request.auth.token.email;
+    }
+
+    // User profiles (photos, display names)
+    match /users/{email} {
+      allow read: if isTeamMember();
+      allow write: if isTeamMember() &&
+        request.auth.token.email == email;
     }
   }
 }

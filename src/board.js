@@ -1,6 +1,7 @@
 import { STATUSES, TEAM } from './config.js'
 import { createTask, updateTask } from './db.js'
 import { openModal } from './modal.js'
+import { attachMention } from './mention.js'
 
 function sortUrgentFirst(tasks) {
   return [...tasks].sort((a, b) => (a.priority === 'urgent' ? 0 : 1) - (b.priority === 'urgent' ? 0 : 1))
@@ -20,38 +21,45 @@ export function renderBoard(container, tasks, ctx) {
           .map((t) => taskCard(t, ctx))
           .join('')}
       </div>
-      <input class="column-add-input" data-status="${s.id}" placeholder="+ Add task" type="text">
+      <div class="column-add-wrap" data-status="${s.id}">
+        <input class="column-add-input" data-status="${s.id}" placeholder="+ Add task (@ to tag)" type="text">
+      </div>
     </div>
   `
   ).join('')}</div>`
 
-  // Click handlers for task cards
+  // Click handlers for task cards (skip if status-btn was clicked)
   container.querySelectorAll('.task-card').forEach((card) => {
-    card.addEventListener('click', () => {
+    card.addEventListener('click', (e) => {
+      if (e.target.closest('.status-btn')) return
       const task = tasks.find((t) => t.id === card.dataset.id)
       if (task) openModal(task, ctx)
     })
   })
 
-  // Inline add-task inputs
+  // Inline add-task inputs with @ mention
   container.querySelectorAll('.column-add-input').forEach((input) => {
+    const mention = attachMention(input, { projects: ctx.projects, clients: ctx.clients })
     input.addEventListener('keydown', async (e) => {
-      if (e.key === 'Enter') {
+      if (e.key === 'Enter' && !mention.isOpen()) {
         const title = input.value.trim()
         if (!title) return
+        const mentionTags = mention.getTags()
         input.disabled = true
         await createTask(ctx.db, {
           title,
           status: input.dataset.status,
+          assignees: mentionTags.assignees,
           clientId: ctx.filterClientId || '',
-          projectId: ctx.filterProjectId || '',
+          projectId: mentionTags.projectId || ctx.filterProjectId || '',
           createdBy: ctx.currentUser?.email || '',
         })
         input.value = ''
         input.disabled = false
+        mention.reset()
         input.focus()
       }
-      if (e.key === 'Escape') {
+      if (e.key === 'Escape' && !mention.isOpen()) {
         input.value = ''
         input.blur()
       }
@@ -120,39 +128,47 @@ export function renderBoardByAssignee(container, tasks, ctx) {
         <div class="column-tasks" data-assignee="${col.email}">
           ${sortUrgentFirst(colTasks).map((t) => taskCardByAssignee(t, ctx)).join('')}
         </div>
-        <input class="column-add-input" data-assignee="${col.email}" placeholder="+ Add task" type="text">
+        <div class="column-add-wrap" data-assignee="${col.email}">
+          <input class="column-add-input" data-assignee="${col.email}" placeholder="+ Add task (@ to tag)" type="text">
+        </div>
       </div>
     `
     }
   ).join('')}</div>`
 
-  // Click handlers
+  // Click handlers (skip if status-btn was clicked)
   container.querySelectorAll('.task-card').forEach((card) => {
-    card.addEventListener('click', () => {
+    card.addEventListener('click', (e) => {
+      if (e.target.closest('.status-btn')) return
       const task = tasks.find((t) => t.id === card.dataset.id)
       if (task) openModal(task, ctx)
     })
   })
 
-  // Inline add-task inputs
+  // Inline add-task inputs with @ mention
   container.querySelectorAll('.column-add-input').forEach((input) => {
+    const mention = attachMention(input, { projects: ctx.projects, clients: ctx.clients })
     input.addEventListener('keydown', async (e) => {
-      if (e.key === 'Enter') {
+      if (e.key === 'Enter' && !mention.isOpen()) {
         const title = input.value.trim()
         if (!title) return
+        const mentionTags = mention.getTags()
+        const baseAssignees = input.dataset.assignee ? [input.dataset.assignee] : []
+        const allAssignees = [...new Set([...baseAssignees, ...mentionTags.assignees])]
         input.disabled = true
         await createTask(ctx.db, {
           title,
-          assignees: input.dataset.assignee ? [input.dataset.assignee] : [],
+          assignees: allAssignees,
           clientId: ctx.filterClientId || '',
-          projectId: ctx.filterProjectId || '',
+          projectId: mentionTags.projectId || ctx.filterProjectId || '',
           createdBy: ctx.currentUser?.email || '',
         })
         input.value = ''
         input.disabled = false
+        mention.reset()
         input.focus()
       }
-      if (e.key === 'Escape') {
+      if (e.key === 'Escape' && !mention.isOpen()) {
         input.value = ''
         input.blur()
       }
@@ -232,38 +248,45 @@ export function renderBoardByClient(container, tasks, ctx) {
         <div class="column-tasks" data-client-id="${col.id}">
           ${sortUrgentFirst(colTasks).map((t) => taskCardByClient(t, ctx)).join('')}
         </div>
-        <input class="column-add-input" data-client-id="${col.id}" placeholder="+ Add task" type="text">
+        <div class="column-add-wrap" data-client-id="${col.id}">
+          <input class="column-add-input" data-client-id="${col.id}" placeholder="+ Add task (@ to tag)" type="text">
+        </div>
       </div>
     `
     }
   ).join('')}</div>`
 
-  // Click handlers
+  // Click handlers (skip if status-btn was clicked)
   container.querySelectorAll('.task-card').forEach((card) => {
-    card.addEventListener('click', () => {
+    card.addEventListener('click', (e) => {
+      if (e.target.closest('.status-btn')) return
       const task = tasks.find((t) => t.id === card.dataset.id)
       if (task) openModal(task, ctx)
     })
   })
 
-  // Inline add-task inputs
+  // Inline add-task inputs with @ mention
   container.querySelectorAll('.column-add-input').forEach((input) => {
+    const mention = attachMention(input, { projects: ctx.projects, clients: ctx.clients })
     input.addEventListener('keydown', async (e) => {
-      if (e.key === 'Enter') {
+      if (e.key === 'Enter' && !mention.isOpen()) {
         const title = input.value.trim()
         if (!title) return
+        const mentionTags = mention.getTags()
         input.disabled = true
         await createTask(ctx.db, {
           title,
+          assignees: mentionTags.assignees,
           clientId: input.dataset.clientId,
-          projectId: ctx.filterProjectId || '',
+          projectId: mentionTags.projectId || ctx.filterProjectId || '',
           createdBy: ctx.currentUser?.email || '',
         })
         input.value = ''
         input.disabled = false
+        mention.reset()
         input.focus()
       }
-      if (e.key === 'Escape') {
+      if (e.key === 'Escape' && !mention.isOpen()) {
         input.value = ''
         input.blur()
       }
@@ -341,40 +364,47 @@ export function renderBoardByProject(container, tasks, ctx) {
         <div class="column-tasks" data-project-id="${col.id}">
           ${sortUrgentFirst(colTasks).map((t) => taskCardByProject(t, ctx)).join('')}
         </div>
-        <input class="column-add-input" data-project-id="${col.id}" placeholder="+ Add task" type="text">
+        <div class="column-add-wrap" data-project-id="${col.id}">
+          <input class="column-add-input" data-project-id="${col.id}" placeholder="+ Add task (@ to tag)" type="text">
+        </div>
       </div>
     `
     }
   ).join('')}</div>`
 
-  // Click handlers
+  // Click handlers (skip if status-btn was clicked)
   container.querySelectorAll('.task-card').forEach((card) => {
-    card.addEventListener('click', () => {
+    card.addEventListener('click', (e) => {
+      if (e.target.closest('.status-btn')) return
       const task = tasks.find((t) => t.id === card.dataset.id)
       if (task) openModal(task, ctx)
     })
   })
 
-  // Inline add-task inputs
+  // Inline add-task inputs with @ mention
   container.querySelectorAll('.column-add-input').forEach((input) => {
+    const mention = attachMention(input, { projects: ctx.projects, clients: ctx.clients })
     input.addEventListener('keydown', async (e) => {
-      if (e.key === 'Enter') {
+      if (e.key === 'Enter' && !mention.isOpen()) {
         const title = input.value.trim()
         if (!title) return
-        input.disabled = true
+        const mentionTags = mention.getTags()
         const projectId = input.dataset.projectId
         const project = ctx.projects.find((p) => p.id === projectId)
+        input.disabled = true
         await createTask(ctx.db, {
           title,
-          projectId: projectId,
+          assignees: mentionTags.assignees,
+          projectId: mentionTags.projectId || projectId,
           clientId: project?.clientId || ctx.filterClientId || '',
           createdBy: ctx.currentUser?.email || '',
         })
         input.value = ''
         input.disabled = false
+        mention.reset()
         input.focus()
       }
-      if (e.key === 'Escape') {
+      if (e.key === 'Escape' && !mention.isOpen()) {
         input.value = ''
         input.blur()
       }
@@ -582,15 +612,15 @@ function toDate(ts) {
 function statusIcon(status) {
   switch (status) {
     case 'done':
-      return '<i class="ph-fill ph-check-circle status-icon done"></i>'
+      return '<button class="status-btn" data-action="cycle-status" title="Done — click to cycle"><i class="ph-fill ph-check-circle status-icon done"></i></button>'
     case 'todo':
-      return '<i class="ph ph-circle status-icon todo"></i>'
+      return '<button class="status-btn" data-action="cycle-status" title="To Do — click to start"><i class="ph ph-circle status-icon todo"></i></button>'
     case 'in_progress':
-      return '<i class="ph-fill ph-circle-half status-icon in-progress"></i>'
+      return '<button class="status-btn" data-action="cycle-status" title="In Progress — click to advance"><i class="ph-fill ph-circle-half status-icon in-progress"></i></button>'
     case 'review':
-      return '<i class="ph-fill ph-eye status-icon review"></i>'
+      return '<button class="status-btn" data-action="cycle-status" title="Review — click to complete"><i class="ph-fill ph-caret-circle-double-right status-icon review"></i></button>'
     default: // backlog
-      return '<i class="ph ph-circle-dashed status-icon backlog"></i>'
+      return '<i class="ph-fill ph-prohibit status-icon backlog"></i>'
   }
 }
 
