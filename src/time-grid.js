@@ -199,13 +199,11 @@ export function bindTimeGridActions(container, { tasks, focusTasks, isOwnDay, ct
   const scroll = container.querySelector('#tg-scroll')
   if (!grid || !body) return
 
-  // Auto-scroll to current time
-  if (scroll) {
-    const nowEl = container.querySelector('#tg-now')
-    if (nowEl) {
-      const y = parseInt(nowEl.style.top, 10) || 0
-      scroll.scrollTop = Math.max(0, y - scroll.clientHeight / 3)
-    }
+  // Scroll the page so the current-time indicator is visible
+  const nowEl = container.querySelector('#tg-now')
+  if (nowEl && nowEl.style.display !== 'none') {
+    const motion = window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth'
+    nowEl.scrollIntoView({ behavior: motion, block: 'center' })
   }
 
   // Update current-time indicator every 60s
