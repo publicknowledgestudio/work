@@ -12,6 +12,7 @@
  */
 
 const { onRequest } = require('firebase-functions/v2/https')
+const { onDocumentWritten } = require('firebase-functions/v2/firestore')
 const { defineSecret } = require('firebase-functions/params')
 const admin = require('firebase-admin')
 
@@ -185,12 +186,6 @@ async function createTask(req, res) {
   }
 
   const ref = await db.collection('tasks').add(task)
-
-  if (assignees.includes(ASTY_EMAIL)) {
-    const projectName = await lookupProjectName(task.projectId)
-    notifyOpenClaw(ref.id, { ...task, projectName }, 'created')
-  }
-
   res.status(201).json({ id: ref.id, ...task })
 }
 
@@ -209,15 +204,6 @@ async function updateTask(req, res, taskId) {
   }
 
   await db.collection('tasks').doc(taskId).update(update)
-
-  const newAssignees = data.assignees || []
-  if (newAssignees.includes(ASTY_EMAIL)) {
-    const taskDoc = await db.collection('tasks').doc(taskId).get()
-    const fullTask = taskDoc.data() || {}
-    const projectName = await lookupProjectName(fullTask.projectId)
-    notifyOpenClaw(taskId, { ...fullTask, projectName }, 'updated')
-  }
-
   res.json({ id: taskId, updated: true })
 }
 
@@ -266,6 +252,24 @@ function notifyOpenClaw(taskId, task, action) {
     body: JSON.stringify(payload),
   }).catch((err) => console.error('OpenClaw webhook error:', err))
 }
+
+// === Firestore Trigger — Notify OpenClaw when Asty is assigned ===
+
+exports.onTaskWritten = onDocumentWritten(
+  { document: 'tasks/{taskId}', secrets: [OPENCLAW_WEBHOOK_URL, OPENCLAW_WEBHOOK_SECRET] },
+  async (event) => {
+    const after = event.data?.after
+    if (!after?.exists) return // task deleted — ignore
+
+    const task = after.data()
+    const assignees = task.assignees || []
+    if (!assignees.includes(ASTY_EMAIL)) return
+
+    const action = event.data?.before?.exists ? 'updated' : 'created'
+    const projectName = await lookupProjectName(task.projectId)
+    notifyOpenClaw(event.params.taskId, { ...task, projectName }, action)
+  }
+)
 
 // === Scrum Summary ===
 // Returns: items closed yesterday + currently open items per team member
