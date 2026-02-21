@@ -208,9 +208,4 @@ Scheduled routines include daily briefings, scrum reminders, stale task detectio
 
 ## Team
 
-| Name | Email |
-|------|-------|
-| Gyan | gyan@publicknowledge.co |
-| Charu | charu@publicknowledge.co |
-| Sharang | sharang@publicknowledge.co |
-| Anandu | anandu@publicknowledge.co |
+Gyan, Charu, Sharang, Anandu
