@@ -7,6 +7,21 @@ const SLACK_BOT_TOKEN = process.env.SLACK_BOT_TOKEN || ''
 const TELL_ASTY_CHANNEL = process.env.TELL_ASTY_CHANNEL || '#tell-asty'
 const PORT = process.env.PORT || 3001
 
+const MESSAGE_TEMPLATES = [
+  (title, project) => `Just saw someone asked me to help with *${title}*${project}. I'm on it!`,
+  (title, project) => `Oh nice — I've been tagged on *${title}*${project}. Already thinking about it!`,
+  (title, project) => `Just picked up *${title}*${project}. I'll get started right away!`,
+  (title, project) => `Got a new one: *${title}*${project}. On it!`,
+  (title, project) => `Looks like I'm needed for *${title}*${project}. Consider it handled!`,
+  (title, project) => `Just noticed I've been assigned *${title}*${project}. I'm on it!`,
+]
+
+function buildMessage(task) {
+  const project = task.projectName ? ` for ${task.projectName}` : ''
+  const template = MESSAGE_TEMPLATES[Math.floor(Math.random() * MESSAGE_TEMPLATES.length)]
+  return template(task.title, project)
+}
+
 app.post('/webhook', async (req, res) => {
   // Validate secret
   const secret = req.headers['x-webhook-secret']
@@ -22,25 +37,8 @@ app.post('/webhook', async (req, res) => {
 
   console.log(`[webhook] ${action} task: ${task.id} — ${task.title}`)
 
-  // Post to #tell-asty
   if (SLACK_BOT_TOKEN) {
-    const priorityEmoji = task.priority === 'urgent' ? '🔥' : task.priority === 'high' ? '⚠️' : ''
-    const statusLabel = {
-      todo: 'To Do',
-      in_progress: 'In Progress',
-      review: 'Review',
-      backlog: 'Backlog',
-      done: 'Done',
-    }[task.status] || task.status
-
-    const lines = [
-      `📋 *Task ${action} — assigned to Asty*`,
-      `*${task.title}*`,
-      `${priorityEmoji} ${statusLabel} · ${task.priority || 'medium'} priority`,
-    ]
-    if (task.description) lines.push(task.description)
-
-    await postToSlack(TELL_ASTY_CHANNEL, lines.join('\n'))
+    await postToSlack(TELL_ASTY_CHANNEL, buildMessage(task))
   }
 
   res.json({ ok: true })

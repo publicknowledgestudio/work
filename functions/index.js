@@ -187,7 +187,8 @@ async function createTask(req, res) {
   const ref = await db.collection('tasks').add(task)
 
   if (assignees.includes(ASTY_EMAIL)) {
-    notifyOpenClaw(ref.id, task, 'created')
+    const projectName = await lookupProjectName(task.projectId)
+    notifyOpenClaw(ref.id, { ...task, projectName }, 'created')
   }
 
   res.status(201).json({ id: ref.id, ...task })
@@ -211,7 +212,10 @@ async function updateTask(req, res, taskId) {
 
   const newAssignees = data.assignees || []
   if (newAssignees.includes(ASTY_EMAIL)) {
-    notifyOpenClaw(taskId, { ...data, updatedAt: new Date().toISOString() }, 'updated')
+    const taskDoc = await db.collection('tasks').doc(taskId).get()
+    const fullTask = taskDoc.data() || {}
+    const projectName = await lookupProjectName(fullTask.projectId)
+    notifyOpenClaw(taskId, { ...fullTask, projectName }, 'updated')
   }
 
   res.json({ id: taskId, updated: true })
@@ -225,6 +229,12 @@ async function deleteTask(req, res, taskId) {
 // === OpenClaw Webhook ===
 
 const ASTY_EMAIL = 'asty@publicknowledge.co'
+
+async function lookupProjectName(projectId) {
+  if (!projectId) return ''
+  const doc = await db.collection('projects').doc(projectId).get()
+  return doc.exists ? (doc.data().name || '') : ''
+}
 
 function notifyOpenClaw(taskId, task, action) {
   const webhookUrl = process.env.OPENCLAW_WEBHOOK_URL
