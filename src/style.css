@@ -3749,7 +3749,7 @@ html, body {
 /* Print styles for timesheets */
 @media print {
   body > *:not(#app) { display: none !important; }
-  .app-header, .timesheets-header, .timesheets-controls { display: none !important; }
+  #app-header, .app-header, .timesheets-header, .timesheets-controls { display: none !important; }
   .timesheets-view { padding: 0; max-width: none; }
   .ts-sheet { border: none; box-shadow: none; }
   .ts-detail-toggle { display: none !important; }

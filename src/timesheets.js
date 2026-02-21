@@ -168,9 +168,11 @@ async function generateTimesheet(ctx, tasks, clientId, monthStr) {
     .sort((a, b) => b.totalMinutes - a.totalMinutes)
 
   const totalMinutes = lineItems.reduce((sum, item) => sum + item.totalMinutes, 0)
-  const totalAmount = lineItems.reduce((sum, item) => sum + (item.totalMinutes / 60) * item.rate, 0)
-  // Use the most common currency (or client default)
-  const currency = client?.currency || 'INR'
+  const ratedItems = lineItems.filter((item) => item.rate > 0)
+  const currencies = [...new Set(ratedItems.map((item) => item.currency))]
+  const mixedCurrency = currencies.length > 1
+  const totalAmount = mixedCurrency ? null : ratedItems.reduce((sum, item) => sum + (item.totalMinutes / 60) * item.rate, 0)
+  const currency = currencies.length === 1 ? currencies[0] : client?.currency || 'INR'
 
   return {
     clientId,
@@ -213,7 +215,7 @@ function renderTimesheetTable(container, data, ctx) {
         <div class="ts-sheet-summary">
           <span class="ts-summary-item">${data.lineItems.length} task${data.lineItems.length !== 1 ? 's' : ''}</span>
           <span class="ts-summary-item">${formatDuration(data.totalMinutes)}</span>
-          ${hasRates ? `<span class="ts-summary-total">${formatCurrency(data.totalAmount, data.currency)}</span>` : ''}
+          ${hasRates && data.totalAmount != null ? `<span class="ts-summary-total">${formatCurrency(data.totalAmount, data.currency)}</span>` : ''}
         </div>
       </div>
 
@@ -258,7 +260,7 @@ function renderTimesheetTable(container, data, ctx) {
           <tr class="ts-total-row">
             <td colspan="2" class="ts-total-label">Total</td>
             <td class="ts-col-time"><strong>${formatDuration(data.totalMinutes)}</strong></td>
-            ${hasRates ? `<td class="ts-col-amount"><strong>${formatCurrency(data.totalAmount, data.currency)}</strong></td>` : ''}
+            ${hasRates ? `<td class="ts-col-amount"><strong>${data.totalAmount != null ? formatCurrency(data.totalAmount, data.currency) : '\u2014'}</strong></td>` : ''}
           </tr>
         </tfoot>
       </table>
