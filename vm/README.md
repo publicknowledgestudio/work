@@ -51,3 +51,32 @@ Files to deploy on the Oracle VM for the OpenClaw webhook receiver.
      -d '{"event":"task_assigned","action":"created","task":{"id":"test","title":"Hello from Cloud","status":"todo","priority":"low"}}'
    # Expected: {"ok":true}  and #tell-asty shows the Slack message
    ```
+
+### #tell-asty Channel — Task Inbox
+
+`#tell-asty` is your task inbox. When someone assigns you a task in PK Work, a notification lands here automatically.
+
+**When you see a task assignment in #tell-asty:**
+1. Look up the full task details using `pkwork_list_tasks` filtered by `assignee: asty@publicknowledge.co`
+2. Update the task status to `in_progress` via `pkwork_update_task` so the team knows you're on it
+3. If the task is clear — work on it, then post back to #tell-asty when done and mark it `done`
+4. If you need clarification before you can start — post a question in #tell-asty and wait before changing the status
+
+**When you need clarification, post something like:**
+- "For *[task title]* — quick one: [your question]"
+- "Before I start on *[task title]*, just want to check: [question]"
+- "On *[task title]* — [your question]. Let me know and I'll get going!"
+
+**When you finish, post something like:**
+- "Done with *[task title]* ✅ [one line on what you did]"
+- "Wrapped up *[task title]* ✅ Here's what I did: [brief summary]"
+- "Just finished *[task title]* ✅ [outcome]"
+
+Then immediately call `pkwork_update_task` with `status: "done"`.
+
+**Status discipline:**
+- Starting work → `in_progress`
+- Blocked / waiting for answer → stay `in_progress`, post the question in #tell-asty
+- Finished → `done` (always update this — the team tracks work on the board)
+
+**Don't go silent.** If a task is taking time, post a quick update in #tell-asty so the team knows you're still on it.
