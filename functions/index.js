@@ -185,6 +185,11 @@ async function createTask(req, res) {
   }
 
   const ref = await db.collection('tasks').add(task)
+
+  if (assignees.includes(ASTY_EMAIL)) {
+    notifyOpenClaw(ref.id, task, 'created')
+  }
+
   res.status(201).json({ id: ref.id, ...task })
 }
 
@@ -203,6 +208,12 @@ async function updateTask(req, res, taskId) {
   }
 
   await db.collection('tasks').doc(taskId).update(update)
+
+  const newAssignees = data.assignees || []
+  if (newAssignees.includes(ASTY_EMAIL)) {
+    notifyOpenClaw(taskId, { ...data, updatedAt: new Date().toISOString() }, 'updated')
+  }
+
   res.json({ id: taskId, updated: true })
 }
 
