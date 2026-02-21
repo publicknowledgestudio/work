@@ -4307,12 +4307,9 @@ body {
 
 /* Print styles for timesheets */
 @media print {
-  body>*:not(#app) {
-    display: none !important;
-  }
-
+  #login-screen,
+  #task-modal,
   #app-header,
-  .app-header,
   .timesheets-header,
   .timesheets-controls {
     display: none !important;
