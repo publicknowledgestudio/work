@@ -220,10 +220,19 @@ function notifyOpenClaw(taskId, task, action) {
   const webhookSecret = process.env.OPENCLAW_WEBHOOK_SECRET
   if (!webhookUrl) return // not configured yet — skip silently
 
+  // Sanitize Firestore-specific objects before JSON serialization
+  const serializableTask = {
+    ...task,
+    deadline: task.deadline?.toDate ? task.deadline.toDate().toISOString() : (task.deadline || null),
+    createdAt: null,
+    updatedAt: null,
+    closedAt: task.closedAt?.toDate ? task.closedAt.toDate().toISOString() : null,
+  }
+
   const payload = {
     event: 'task_assigned',
     action,
-    task: { id: taskId, ...task },
+    task: { id: taskId, ...serializableTask },
   }
 
   // Fire and forget — do not await, do not block the response
