@@ -201,6 +201,7 @@ function renderTimesheetTable(container, data, ctx) {
 
   const client = ctx.clients.find((c) => c.id === data.clientId)
   const hasRates = data.lineItems.some((item) => item.rate > 0)
+  const colCount = 5 + (hasRates ? 1 : 0) // #, Task, Date, Logged By, Time, [Amount]
 
   container.innerHTML = `
     <div class="ts-sheet">
@@ -224,6 +225,8 @@ function renderTimesheetTable(container, data, ctx) {
           <tr>
             <th class="ts-col-num">#</th>
             <th class="ts-col-task">Task</th>
+            <th class="ts-col-date">Date</th>
+            <th class="ts-col-person">Logged by</th>
             <th class="ts-col-time">Time</th>
             ${hasRates ? '<th class="ts-col-amount">Amount</th>' : ''}
           </tr>
@@ -232,33 +235,42 @@ function renderTimesheetTable(container, data, ctx) {
           ${data.lineItems.map((item, i) => {
             const hours = item.totalMinutes / 60
             const amount = item.rate > 0 ? hours * item.rate : 0
-            const timeDetail = item.blocks.map((b) => {
-              const member = TEAM.find((m) => m.email === b.userEmail)
-              const who = member ? member.name : ''
-              return `${formatDateShort(b.date)}: ${fmtTime(b.start)}\u2013${fmtTime(b.end)} (${formatDuration(b.minutes)})${who ? ' \u00b7 ' + who : ''}`
-            }).join('\n')
-            return `
-              <tr>
+            const taskRow = `
+              <tr class="ts-task-row">
                 <td class="ts-col-num">${i + 1}</td>
                 <td class="ts-col-task">
                   <div class="ts-task-title">${esc(item.title)}</div>
                   ${item.project ? `<div class="ts-task-project">${esc(item.project)}</div>` : ''}
                 </td>
-                <td class="ts-col-time">
-                  <span class="ts-duration">${formatDuration(item.totalMinutes)}</span>
-                  <button class="btn-ghost ts-detail-toggle" title="Show breakdown">
-                    <i class="ph ph-caret-down"></i>
-                  </button>
-                  <div class="ts-time-detail hidden">${esc(timeDetail)}</div>
-                </td>
+                <td class="ts-col-date"></td>
+                <td class="ts-col-person"></td>
+                <td class="ts-col-time"><span class="ts-duration">${formatDuration(item.totalMinutes)}</span></td>
                 ${hasRates ? `<td class="ts-col-amount">${item.rate > 0 ? formatCurrency(amount, item.currency) : ''}</td>` : ''}
-              </tr>
-            `
+              </tr>`
+            const blockRows = item.blocks.map((b) => {
+              const member = TEAM.find((m) => m.email === b.userEmail)
+              const avatarHtml = member
+                ? (safeUrl(member.photoURL)
+                    ? `<img class="avatar-photo-xs" src="${esc(safeUrl(member.photoURL))}" alt="${esc(member.name)}">`
+                    : `<span class="avatar-xs" style="background:${member.color}">${member.name[0]}</span>`)
+                : ''
+              const nameHtml = member ? esc(member.name) : esc(b.userEmail)
+              return `
+              <tr class="ts-block-row">
+                <td class="ts-col-num"></td>
+                <td class="ts-col-task"></td>
+                <td class="ts-col-date">${formatDateShort(b.date)}</td>
+                <td class="ts-col-person"><span class="ts-person">${avatarHtml} ${nameHtml}</span></td>
+                <td class="ts-col-time">${fmtTime(b.start)}\u2013${fmtTime(b.end)} <span class="ts-block-duration">(${formatDuration(b.minutes)})</span></td>
+                ${hasRates ? '<td class="ts-col-amount"></td>' : ''}
+              </tr>`
+            }).join('')
+            return taskRow + blockRows
           }).join('')}
         </tbody>
         <tfoot>
           <tr class="ts-total-row">
-            <td colspan="2" class="ts-total-label">Total</td>
+            <td colspan="${colCount - 1 - (hasRates ? 1 : 0)}" class="ts-total-label">Total</td>
             <td class="ts-col-time"><strong>${formatDuration(data.totalMinutes)}</strong></td>
             ${hasRates ? `<td class="ts-col-amount"><strong>${data.totalAmount != null ? formatCurrency(data.totalAmount, data.currency) : '\u2014'}</strong></td>` : ''}
           </tr>
@@ -266,18 +278,6 @@ function renderTimesheetTable(container, data, ctx) {
       </table>
     </div>
   `
-
-  // Toggle detail breakdowns
-  container.querySelectorAll('.ts-detail-toggle').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      const detail = btn.parentElement.querySelector('.ts-time-detail')
-      if (detail) {
-        detail.classList.toggle('hidden')
-        btn.querySelector('i').classList.toggle('ph-caret-down')
-        btn.querySelector('i').classList.toggle('ph-caret-up')
-      }
-    })
-  })
 }
 
 // ── Helpers ──

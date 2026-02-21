@@ -3683,10 +3683,18 @@ html, body {
   text-align: center !important;
 }
 .ts-col-task {
-  min-width: 200px;
+  min-width: 180px;
+}
+.ts-col-date {
+  width: 90px;
+  white-space: nowrap;
+}
+.ts-col-person {
+  width: 130px;
+  white-space: nowrap;
 }
 .ts-col-time {
-  width: 160px;
+  width: 140px;
   white-space: nowrap;
 }
 .ts-col-amount {
@@ -3704,18 +3712,38 @@ html, body {
 .ts-duration {
   font-weight: 500;
 }
-.ts-detail-toggle {
-  padding: 2px 4px;
-  font-size: 11px;
-  color: var(--text-tertiary);
-  vertical-align: middle;
+
+/* Task header row */
+.ts-task-row td {
+  border-bottom: none;
+  padding-bottom: 2px;
 }
-.ts-time-detail {
-  font-size: 11px;
+.ts-task-row + .ts-block-row td {
+  padding-top: 2px;
+}
+
+/* Time block sub-rows */
+.ts-block-row td {
+  padding-top: 3px;
+  padding-bottom: 3px;
+  border-bottom: none;
+  font-size: 12px;
   color: var(--text-secondary);
-  margin-top: 4px;
-  white-space: pre-line;
-  line-height: 1.6;
+}
+/* Bottom border only on the last block row before next task */
+.ts-block-row:has(+ .ts-task-row) td,
+.ts-block-row:last-child td {
+  border-bottom: 1px solid var(--border-light);
+  padding-bottom: 10px;
+}
+.ts-block-duration {
+  color: var(--text-tertiary);
+  font-size: 11px;
+}
+.ts-person {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 /* Timesheet footer */
@@ -3741,7 +3769,9 @@ html, body {
     min-width: auto;
     width: 100%;
   }
-  .ts-col-time {
+  .ts-col-time,
+  .ts-col-date,
+  .ts-col-person {
     width: auto;
   }
 }
@@ -3752,8 +3782,6 @@ html, body {
   #app-header, .app-header, .timesheets-header, .timesheets-controls { display: none !important; }
   .timesheets-view { padding: 0; max-width: none; }
   .ts-sheet { border: none; box-shadow: none; }
-  .ts-detail-toggle { display: none !important; }
-  .ts-time-detail { display: block !important; }
 }
 
 /* Extra-small screens */
