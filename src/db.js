@@ -45,6 +45,8 @@ export async function createClient(db, data) {
   return addDoc(collection(db, 'clients'), {
     name: data.name,
     logoUrl: data.logoUrl || '',
+    defaultHourlyRate: data.defaultHourlyRate || 0,
+    currency: data.currency || 'INR',
     createdAt: serverTimestamp(),
   })
 }
@@ -97,6 +99,8 @@ export async function createProject(db, data) {
   return addDoc(collection(db, 'projects'), {
     name: data.name,
     clientId: data.clientId || '',
+    hourlyRate: data.hourlyRate || 0,
+    currency: data.currency || 'INR',
     createdAt: serverTimestamp(),
   })
 }

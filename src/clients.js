@@ -57,6 +57,19 @@ export function renderClients(container, ctx) {
                   <img id="logo-preview" class="client-logo" style="display:none" alt="Preview">
                   <button id="logo-clear" class="btn-ghost" style="display:none;font-size:12px;">Remove</button>
                 </div>
+                <div class="rate-row">
+                  <div class="rate-field">
+                    <label class="form-label-sm">Default hourly rate</label>
+                    <input type="number" id="new-client-rate" class="form-input" placeholder="0" min="0" step="1">
+                  </div>
+                  <div class="rate-field rate-currency-field">
+                    <label class="form-label-sm">Currency</label>
+                    <select id="new-client-currency" class="form-select">
+                      <option value="INR">INR</option>
+                      <option value="USD">USD</option>
+                    </select>
+                  </div>
+                </div>
                 <div class="inline-form-actions">
                   <button class="btn-primary" id="save-client-btn">Add</button>
                   <button class="btn-ghost" id="cancel-client-btn">Cancel</button>
@@ -117,6 +130,9 @@ export function renderClients(container, ctx) {
   const saveClientBtn = document.getElementById('save-client-btn')
   const cancelClientBtn = document.getElementById('cancel-client-btn')
 
+  const newClientRate = document.getElementById('new-client-rate')
+  const newClientCurrency = document.getElementById('new-client-currency')
+
   let selectedLogoFile = null
   let existingLogoUrl = ''
 
@@ -152,6 +168,8 @@ export function renderClients(container, ctx) {
   addClientBtn.addEventListener('click', () => {
     editingClientId = null
     newClientName.value = ''
+    newClientRate.value = ''
+    newClientCurrency.value = 'INR'
     resetLogoForm()
     addClientForm.classList.remove('hidden')
     saveClientBtn.textContent = 'Add'
@@ -169,17 +187,20 @@ export function renderClients(container, ctx) {
     saveClientBtn.disabled = true
     saveClientBtn.textContent = 'Saving...'
 
+    const defaultHourlyRate = parseFloat(newClientRate.value) || 0
+    const currency = newClientCurrency.value || 'INR'
+
     try {
       if (editingClientId) {
         let logoUrl = existingLogoUrl
         if (selectedLogoFile) {
           logoUrl = await uploadClientLogo(selectedLogoFile, editingClientId)
         }
-        await updateClient(ctx.db, editingClientId, { name, logoUrl })
+        await updateClient(ctx.db, editingClientId, { name, logoUrl, defaultHourlyRate, currency })
         editingClientId = null
       } else {
         // Create first to get an ID, then upload logo
-        const docRef = await createClient(ctx.db, { name, logoUrl: '' })
+        const docRef = await createClient(ctx.db, { name, logoUrl: '', defaultHourlyRate, currency })
         if (selectedLogoFile) {
           const logoUrl = await uploadClientLogo(selectedLogoFile, docRef.id)
           await updateClient(ctx.db, docRef.id, { logoUrl })
@@ -190,6 +211,8 @@ export function renderClients(container, ctx) {
     }
 
     newClientName.value = ''
+    newClientRate.value = ''
+    newClientCurrency.value = 'INR'
     resetLogoForm()
     addClientForm.classList.add('hidden')
     saveClientBtn.disabled = false
@@ -231,7 +254,11 @@ export function renderClients(container, ctx) {
       await updateProject(ctx.db, editingProjectId, { name, clientId })
       editingProjectId = null
     } else {
-      await createProject(ctx.db, { name, clientId })
+      // Inherit hourly rate and currency from client
+      const client = localClients.find((c) => c.id === clientId)
+      const hourlyRate = client?.defaultHourlyRate || 0
+      const currency = client?.currency || 'INR'
+      await createProject(ctx.db, { name, clientId, hourlyRate, currency })
     }
     newProjectName.value = ''
     newProjectClient.value = ''
@@ -268,12 +295,13 @@ export function renderClients(container, ctx) {
       const logo = c.logoUrl
         ? `<img class="client-logo" src="${c.logoUrl}" alt="${c.name}">`
         : `<span class="client-logo client-logo-placeholder">${c.name[0]}</span>`
+      const rateLabel = c.defaultHourlyRate ? `${c.currency || 'INR'} ${c.defaultHourlyRate}/hr` : ''
       return `
         <div class="client-row" data-id="${c.id}">
           ${logo}
           <div class="client-row-info">
             <span class="client-row-name">${c.name}</span>
-            <span class="client-row-meta">${projectCount} project${projectCount !== 1 ? 's' : ''}</span>
+            <span class="client-row-meta">${projectCount} project${projectCount !== 1 ? 's' : ''}${rateLabel ? ' · ' + rateLabel : ''}</span>
           </div>
           <div class="client-row-actions">
             <button class="btn-ghost client-edit" data-id="${c.id}" data-name="${c.name}" data-logo="${c.logoUrl || ''}"><i class="ph ph-pencil-simple"></i></button>
@@ -286,8 +314,11 @@ export function renderClients(container, ctx) {
     list.querySelectorAll('.client-edit').forEach((btn) => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation()
+        const client = localClients.find((c) => c.id === btn.dataset.id)
         editingClientId = btn.dataset.id
         newClientName.value = btn.dataset.name
+        newClientRate.value = client?.defaultHourlyRate || ''
+        newClientCurrency.value = client?.currency || 'INR'
         resetLogoForm()
         existingLogoUrl = btn.dataset.logo || ''
         if (existingLogoUrl) {
@@ -329,12 +360,15 @@ export function renderClients(container, ctx) {
           ? `<span class="client-logo-xs client-logo-placeholder">${client.name[0]}</span>`
           : ''
       const isActive = p.id === activeProjectId
+      const pRate = p.hourlyRate ?? client?.defaultHourlyRate ?? 0
+      const pCurrency = p.currency || client?.currency || 'INR'
+      const pRateLabel = pRate ? `${pCurrency} ${pRate}/hr` : ''
       return `
         <div class="client-row project-clickable${isActive ? ' active' : ''}" data-id="${p.id}">
           ${logo}
           <div class="client-row-info">
             <span class="client-row-name">${p.name}</span>
-            <span class="client-row-meta">${client ? client.name : 'No client'}</span>
+            <span class="client-row-meta">${client ? client.name : 'No client'}${pRateLabel ? ' · ' + pRateLabel : ''}</span>
           </div>
           <div class="client-row-actions">
             <button class="btn-ghost project-edit" data-id="${p.id}" data-name="${p.name}" data-client="${p.clientId || ''}"><i class="ph ph-pencil-simple"></i></button>
@@ -436,6 +470,7 @@ function renderProjectDetail(project) {
       <div class="tab-bar">
         <button class="tab${projectActiveTab === 'page' ? ' active' : ''}" data-tab="page">Page</button>
         <button class="tab${projectActiveTab === 'activity' ? ' active' : ''}" data-tab="activity">Activity</button>
+        <button class="tab${projectActiveTab === 'settings' ? ' active' : ''}" data-tab="settings">Settings</button>
       </div>
 
       <div class="tab-content" id="project-tab-content"></div>
@@ -462,6 +497,8 @@ function renderProjectTabContent(project) {
 
   if (projectActiveTab === 'page') {
     renderProjectPageTab(container, project)
+  } else if (projectActiveTab === 'settings') {
+    renderProjectSettingsTab(container, project)
   } else {
     renderProjectActivityTab(container, project)
   }
@@ -538,6 +575,42 @@ function renderProjectPageTab(container, project) {
       })
     }
   }
+}
+
+function renderProjectSettingsTab(container, project) {
+  const client = localClients.find((c) => c.id === project.clientId)
+  const rate = project.hourlyRate ?? client?.defaultHourlyRate ?? 0
+  const currency = project.currency || client?.currency || 'INR'
+  const inherited = project.hourlyRate == null || project.hourlyRate === undefined
+
+  container.innerHTML = `
+    <div class="project-settings">
+      <div class="settings-section">
+        <h4 class="settings-section-title">Billing</h4>
+        <div class="settings-row">
+          <div class="rate-field">
+            <label class="form-label-sm">Hourly rate</label>
+            <input type="number" id="project-rate" class="form-input" value="${rate}" min="0" step="1" placeholder="0">
+          </div>
+          <div class="rate-field rate-currency-field">
+            <label class="form-label-sm">Currency</label>
+            <select id="project-currency" class="form-select">
+              <option value="INR"${currency === 'INR' ? ' selected' : ''}>INR</option>
+              <option value="USD"${currency === 'USD' ? ' selected' : ''}>USD</option>
+            </select>
+          </div>
+        </div>
+        ${inherited && client ? `<p class="settings-hint">Inherited from ${escHtml(client.name)} default rate</p>` : ''}
+        <button class="btn-primary" id="project-rate-save" style="margin-top:8px">Save</button>
+      </div>
+    </div>
+  `
+
+  document.getElementById('project-rate-save').addEventListener('click', async () => {
+    const newRate = parseFloat(document.getElementById('project-rate').value) || 0
+    const newCurrency = document.getElementById('project-currency').value || 'INR'
+    await updateProject(currentCtx.db, project.id, { hourlyRate: newRate, currency: newCurrency })
+  })
 }
 
 function renderProjectActivityTab(container, project) {

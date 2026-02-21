@@ -3485,6 +3485,52 @@ html, body {
   margin-bottom: 0;
 }
 
+/* ===== Rate fields (shared by client form + project settings) ===== */
+
+.rate-row {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+}
+.rate-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.rate-currency-field {
+  width: 80px;
+  flex-shrink: 0;
+}
+.form-label-sm {
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+.project-settings {
+  padding: 4px 0;
+}
+.settings-section {
+  margin-bottom: 24px;
+}
+.settings-section-title {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 12px;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.settings-row {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+}
+.settings-hint {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  margin-top: 4px;
+}
+
 /* ===== Timesheets ===== */
 
 .timesheets-view {
@@ -3531,28 +3577,19 @@ html, body {
 .timesheets-control-group .form-input {
   min-width: 160px;
 }
-.ts-rate-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.ts-rate-input {
-  width: 100px !important;
-  min-width: 100px !important;
-}
-.ts-rate-save {
-  font-size: 12px;
-  padding: 4px 8px;
-  color: var(--primary);
-}
 .ts-generate-group {
   margin-left: auto;
 }
-.ts-generate-btn {
+.ts-print-btn {
   display: flex;
   align-items: center;
   gap: 6px;
   padding: 8px 16px;
+}
+.ts-loading {
+  text-align: center;
+  padding: 32px 16px;
+  color: var(--text-secondary);
 }
 
 /* Timesheet empty state */
@@ -3691,17 +3728,6 @@ html, body {
   text-align: right !important;
   padding-right: 16px !important;
 }
-.ts-rate-row td {
-  border-top: none;
-  padding-top: 4px;
-  font-size: 12px;
-  color: var(--text-secondary);
-  text-align: right;
-}
-.ts-rate-note {
-  text-align: right !important;
-}
-
 @media (max-width: 640px) {
   .timesheets-controls {
     flex-direction: column;
@@ -3718,6 +3744,16 @@ html, body {
   .ts-col-time {
     width: auto;
   }
+}
+
+/* Print styles for timesheets */
+@media print {
+  body > *:not(#app) { display: none !important; }
+  .app-header, .timesheets-header, .timesheets-controls { display: none !important; }
+  .timesheets-view { padding: 0; max-width: none; }
+  .ts-sheet { border: none; box-shadow: none; }
+  .ts-detail-toggle { display: none !important; }
+  .ts-time-detail { display: block !important; }
 }
 
 /* Extra-small screens */

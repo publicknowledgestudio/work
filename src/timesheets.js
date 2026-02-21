@@ -1,4 +1,4 @@
-import { loadAllDailyFocusForRange, updateClient } from './db.js'
+import { loadAllDailyFocusForRange } from './db.js'
 import { TEAM } from './config.js'
 
 let currentClientId = ''
@@ -12,7 +12,7 @@ export async function renderTimesheets(container, tasks, ctx) {
     currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
   }
 
-  const clients = ctx.clients.filter((c) => c.name) // skip empty
+  const clients = ctx.clients.filter((c) => c.name)
 
   container.innerHTML = `
     <div class="timesheets-view">
@@ -33,17 +33,9 @@ export async function renderTimesheets(container, tasks, ctx) {
           <label class="form-label">Month</label>
           <input type="month" id="ts-month" class="form-input" value="${currentMonth}">
         </div>
-        <div class="timesheets-control-group">
-          <label class="form-label">Hourly Rate</label>
-          <div class="ts-rate-row">
-            <input type="number" id="ts-rate" class="form-input ts-rate-input" placeholder="0" min="0" step="1"
-              value="${currentClientId ? (ctx.clients.find((c) => c.id === currentClientId)?.hourlyRate ?? '') : ''}">
-            <button class="btn-ghost ts-rate-save hidden" id="ts-rate-save">Save</button>
-          </div>
-        </div>
         <div class="timesheets-control-group ts-generate-group">
-          <button class="btn-primary ts-generate-btn" id="ts-generate">
-            <i class="ph ph-file-text"></i> Generate
+          <button class="btn-ghost ts-print-btn hidden" id="ts-print">
+            <i class="ph ph-printer"></i> Print
           </button>
         </div>
       </div>
@@ -52,108 +44,59 @@ export async function renderTimesheets(container, tasks, ctx) {
     </div>
   `
 
-  // Bind controls
   const clientSelect = document.getElementById('ts-client')
   const monthInput = document.getElementById('ts-month')
-  const rateInput = document.getElementById('ts-rate')
-  const rateSaveBtn = document.getElementById('ts-rate-save')
-  const generateBtn = document.getElementById('ts-generate')
+  const printBtn = document.getElementById('ts-print')
 
   clientSelect.addEventListener('change', () => {
     currentClientId = clientSelect.value
-    const client = ctx.clients.find((c) => c.id === currentClientId)
-    rateInput.value = client?.hourlyRate ?? ''
-    rateSaveBtn.classList.add('hidden')
-    timesheetData = null
-    document.getElementById('ts-result').innerHTML = ''
+    autoGenerate(container, tasks, ctx)
   })
 
   monthInput.addEventListener('change', () => {
     currentMonth = monthInput.value
+    autoGenerate(container, tasks, ctx)
+  })
+
+  printBtn.addEventListener('click', () => {
+    window.print()
+  })
+
+  // Auto-generate if we already have a selection
+  if (currentClientId && currentMonth) {
+    autoGenerate(container, tasks, ctx)
+  }
+}
+
+async function autoGenerate(container, tasks, ctx) {
+  const resultEl = document.getElementById('ts-result')
+  const printBtn = document.getElementById('ts-print')
+  if (!resultEl) return
+
+  if (!currentClientId) {
     timesheetData = null
-    document.getElementById('ts-result').innerHTML = ''
-  })
+    printBtn?.classList.add('hidden')
+    resultEl.innerHTML = ''
+    return
+  }
 
-  rateInput.addEventListener('input', () => {
-    const client = ctx.clients.find((c) => c.id === currentClientId)
-    const currentRate = client?.hourlyRate ?? ''
-    if (rateInput.value !== String(currentRate)) {
-      rateSaveBtn.classList.remove('hidden')
-    } else {
-      rateSaveBtn.classList.add('hidden')
-    }
-  })
+  if (!currentMonth || !/^\d{4}-\d{2}$/.test(currentMonth)) {
+    timesheetData = null
+    printBtn?.classList.add('hidden')
+    resultEl.innerHTML = '<div class="ts-empty">Please select a valid month.</div>'
+    return
+  }
 
-  rateSaveBtn.addEventListener('click', async () => {
-    if (!currentClientId) return
-    const newRate = parseFloat(rateInput.value) || 0
-    const client = ctx.clients.find((c) => c.id === currentClientId)
-    const rateHistory = client?.rateHistory || []
+  resultEl.innerHTML = '<div class="ts-loading"><i class="ph ph-spinner"></i> Loading...</div>'
 
-    const newEffective = new Date().toISOString().split('T')[0]
-
-    // Add current rate to history before changing
-    if (client?.hourlyRate && client.hourlyRate !== newRate) {
-      rateHistory.push({
-        rate: client.hourlyRate,
-        effectiveFrom: client.rateEffectiveFrom || '2020-01-01',
-        effectiveUntil: newEffective,
-      })
-    }
-
-    await updateClient(ctx.db, currentClientId, {
-      hourlyRate: newRate,
-      rateEffectiveFrom: newEffective,
-      rateHistory,
-    })
-
-    // Update local reference
-    if (client) {
-      client.hourlyRate = newRate
-      client.rateEffectiveFrom = newEffective
-      client.rateHistory = rateHistory
-    }
-    rateSaveBtn.classList.add('hidden')
-
-    // Re-render table if visible
-    if (timesheetData) {
-      renderTimesheetTable(document.getElementById('ts-result'), timesheetData, newRate, ctx)
-    }
-  })
-
-  generateBtn.addEventListener('click', async () => {
-    if (!currentClientId) {
-      document.getElementById('ts-result').innerHTML = '<div class="ts-empty">Please select a client.</div>'
-      return
-    }
-
-    if (!currentMonth || !/^\d{4}-\d{2}$/.test(currentMonth) || Number.isNaN(new Date(currentMonth).getTime())) {
-      document.getElementById('ts-result').innerHTML = '<div class="ts-empty">Please select a month.</div>'
-      return
-    }
-
-    generateBtn.disabled = true
-    generateBtn.innerHTML = '<i class="ph ph-spinner"></i> Loading...'
-
-    try {
-      timesheetData = await generateTimesheet(ctx, tasks, currentClientId, currentMonth)
-      const client = ctx.clients.find((c) => c.id === currentClientId)
-      const rate = parseFloat(rateInput.value) || client?.hourlyRate || 0
-      renderTimesheetTable(document.getElementById('ts-result'), timesheetData, rate, ctx)
-    } catch (err) {
-      console.error('Timesheet generation error:', err)
-      document.getElementById('ts-result').innerHTML = '<div class="ts-empty">Error generating timesheet.</div>'
-    }
-
-    generateBtn.disabled = false
-    generateBtn.innerHTML = '<i class="ph ph-file-text"></i> Generate'
-  })
-
-  // If we had previous data, re-render
-  if (timesheetData && currentClientId) {
-    const client = ctx.clients.find((c) => c.id === currentClientId)
-    const rate = client?.hourlyRate || 0
-    renderTimesheetTable(document.getElementById('ts-result'), timesheetData, rate, ctx)
+  try {
+    timesheetData = await generateTimesheet(ctx, tasks, currentClientId, currentMonth)
+    renderTimesheetTable(resultEl, timesheetData, ctx)
+    printBtn?.classList.toggle('hidden', timesheetData.lineItems.length === 0)
+  } catch (err) {
+    console.error('Timesheet generation error:', err)
+    resultEl.innerHTML = '<div class="ts-empty">Error generating timesheet.</div>'
+    printBtn?.classList.add('hidden')
   }
 }
 
@@ -163,26 +106,19 @@ async function generateTimesheet(ctx, tasks, clientId, monthStr) {
   const lastDay = new Date(year, month, 0).getDate()
   const endDate = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`
 
-  // Get tasks belonging to this client
-  const clientTaskIds = new Set(
-    tasks.filter((t) => t.clientId === clientId).map((t) => t.id)
-  )
-
-  // Also include tasks whose project belongs to this client
+  // Get tasks belonging to this client (directly or via project)
   const clientProjectIds = new Set(
     ctx.projects.filter((p) => p.clientId === clientId).map((p) => p.id)
   )
-  tasks.forEach((t) => {
-    if (t.projectId && clientProjectIds.has(t.projectId)) {
-      clientTaskIds.add(t.id)
-    }
-  })
+  const clientTaskIds = new Set(
+    tasks.filter((t) => t.clientId === clientId || (t.projectId && clientProjectIds.has(t.projectId))).map((t) => t.id)
+  )
 
   // Load all dailyFocus docs for this date range
   const focusDocs = await loadAllDailyFocusForRange(ctx.db, startDate, endDate)
 
   // Aggregate time blocks per task
-  const taskTimeMap = {} // taskId -> { totalMinutes, blocks: [{date, start, end}] }
+  const taskTimeMap = {} // taskId -> { totalMinutes, blocks: [...] }
 
   for (const doc of focusDocs) {
     const blocks = doc.timeBlocks || []
@@ -205,22 +141,30 @@ async function generateTimesheet(ctx, tasks, clientId, monthStr) {
     }
   }
 
-  // Build line items
+  // Build line items with per-task rate from project
+  const client = ctx.clients.find((c) => c.id === clientId)
   const lineItems = Object.entries(taskTimeMap)
     .map(([taskId, data]) => {
       const task = tasks.find((t) => t.id === taskId)
       const project = task?.projectId ? ctx.projects.find((p) => p.id === task.projectId) : null
+      const rate = project?.hourlyRate ?? client?.defaultHourlyRate ?? 0
+      const currency = project?.currency || client?.currency || 'INR'
       return {
         taskId,
         title: task?.title || 'Unknown task',
         project: project?.name || '',
         totalMinutes: data.totalMinutes,
+        rate,
+        currency,
         blocks: data.blocks.sort((a, b) => a.date.localeCompare(b.date) || a.start.localeCompare(b.start)),
       }
     })
     .sort((a, b) => b.totalMinutes - a.totalMinutes)
 
   const totalMinutes = lineItems.reduce((sum, item) => sum + item.totalMinutes, 0)
+  const totalAmount = lineItems.reduce((sum, item) => sum + (item.totalMinutes / 60) * item.rate, 0)
+  // Use the most common currency (or client default)
+  const currency = client?.currency || 'INR'
 
   return {
     clientId,
@@ -229,10 +173,12 @@ async function generateTimesheet(ctx, tasks, clientId, monthStr) {
     endDate,
     lineItems,
     totalMinutes,
+    totalAmount,
+    currency,
   }
 }
 
-function renderTimesheetTable(container, data, hourlyRate, ctx) {
+function renderTimesheetTable(container, data, ctx) {
   if (!data || data.lineItems.length === 0) {
     const client = ctx.clients.find((c) => c.id === data?.clientId)
     container.innerHTML = `
@@ -246,8 +192,7 @@ function renderTimesheetTable(container, data, hourlyRate, ctx) {
   }
 
   const client = ctx.clients.find((c) => c.id === data.clientId)
-  const totalHours = data.totalMinutes / 60
-  const subtotal = hourlyRate > 0 ? totalHours * hourlyRate : 0
+  const hasRates = data.lineItems.some((item) => item.rate > 0)
 
   container.innerHTML = `
     <div class="ts-sheet">
@@ -262,7 +207,7 @@ function renderTimesheetTable(container, data, hourlyRate, ctx) {
         <div class="ts-sheet-summary">
           <span class="ts-summary-item">${data.lineItems.length} task${data.lineItems.length !== 1 ? 's' : ''}</span>
           <span class="ts-summary-item">${formatDuration(data.totalMinutes)}</span>
-          ${hourlyRate > 0 ? `<span class="ts-summary-total">${formatCurrency(subtotal)}</span>` : ''}
+          ${hasRates ? `<span class="ts-summary-total">${formatCurrency(data.totalAmount, data.currency)}</span>` : ''}
         </div>
       </div>
 
@@ -272,17 +217,17 @@ function renderTimesheetTable(container, data, hourlyRate, ctx) {
             <th class="ts-col-num">#</th>
             <th class="ts-col-task">Task</th>
             <th class="ts-col-time">Time</th>
-            ${hourlyRate > 0 ? '<th class="ts-col-amount">Amount</th>' : ''}
+            ${hasRates ? '<th class="ts-col-amount">Amount</th>' : ''}
           </tr>
         </thead>
         <tbody>
           ${data.lineItems.map((item, i) => {
             const hours = item.totalMinutes / 60
-            const amount = hourlyRate > 0 ? hours * hourlyRate : 0
+            const amount = item.rate > 0 ? hours * item.rate : 0
             const timeDetail = item.blocks.map((b) => {
               const member = TEAM.find((m) => m.email === b.userEmail)
               const who = member ? member.name : ''
-              return `${formatDateShort(b.date)}: ${fmtTime(b.start)}–${fmtTime(b.end)} (${formatDuration(b.minutes)})${who ? ' · ' + who : ''}`
+              return `${formatDateShort(b.date)}: ${fmtTime(b.start)}\u2013${fmtTime(b.end)} (${formatDuration(b.minutes)})${who ? ' \u00b7 ' + who : ''}`
             }).join('\n')
             return `
               <tr>
@@ -298,7 +243,7 @@ function renderTimesheetTable(container, data, hourlyRate, ctx) {
                   </button>
                   <div class="ts-time-detail hidden">${esc(timeDetail)}</div>
                 </td>
-                ${hourlyRate > 0 ? `<td class="ts-col-amount">${formatCurrency(amount)}</td>` : ''}
+                ${hasRates ? `<td class="ts-col-amount">${item.rate > 0 ? formatCurrency(amount, item.currency) : ''}</td>` : ''}
               </tr>
             `
           }).join('')}
@@ -307,15 +252,8 @@ function renderTimesheetTable(container, data, hourlyRate, ctx) {
           <tr class="ts-total-row">
             <td colspan="2" class="ts-total-label">Total</td>
             <td class="ts-col-time"><strong>${formatDuration(data.totalMinutes)}</strong></td>
-            ${hourlyRate > 0 ? `<td class="ts-col-amount"><strong>${formatCurrency(subtotal)}</strong></td>` : ''}
+            ${hasRates ? `<td class="ts-col-amount"><strong>${formatCurrency(data.totalAmount, data.currency)}</strong></td>` : ''}
           </tr>
-          ${hourlyRate > 0 ? `
-          <tr class="ts-rate-row">
-            <td colspan="${hourlyRate > 0 ? 4 : 3}" class="ts-rate-note">
-              Rate: ${formatCurrency(hourlyRate)}/hr
-            </td>
-          </tr>
-          ` : ''}
         </tfoot>
       </table>
     </div>
@@ -353,10 +291,10 @@ function formatDuration(minutes) {
   return `${h}h ${m}m`
 }
 
-function formatCurrency(amount) {
+function formatCurrency(amount, currency) {
   return new Intl.NumberFormat('en-IN', {
     style: 'currency',
-    currency: 'INR',
+    currency: currency || 'INR',
     minimumFractionDigits: 0,
     maximumFractionDigits: 0,
   }).format(amount)
