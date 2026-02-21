@@ -224,8 +224,8 @@ function notifyOpenClaw(taskId, task, action) {
   const serializableTask = {
     ...task,
     deadline: task.deadline?.toDate ? task.deadline.toDate().toISOString() : (task.deadline || null),
-    createdAt: null,
-    updatedAt: null,
+    createdAt: task.createdAt?.toDate ? task.createdAt.toDate().toISOString() : null,
+    updatedAt: task.updatedAt?.toDate ? task.updatedAt.toDate().toISOString() : null,
     closedAt: task.closedAt?.toDate ? task.closedAt.toDate().toISOString() : null,
   }
 
