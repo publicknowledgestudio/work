@@ -37,7 +37,7 @@ export async function renderTimesheets(container, tasks, ctx) {
           <label class="form-label">Hourly Rate</label>
           <div class="ts-rate-row">
             <input type="number" id="ts-rate" class="form-input ts-rate-input" placeholder="0" min="0" step="1"
-              value="${currentClientId ? (ctx.clients.find((c) => c.id === currentClientId)?.hourlyRate || '') : ''}">
+              value="${currentClientId ? (ctx.clients.find((c) => c.id === currentClientId)?.hourlyRate ?? '') : ''}">
             <button class="btn-ghost ts-rate-save hidden" id="ts-rate-save">Save</button>
           </div>
         </div>
@@ -62,7 +62,7 @@ export async function renderTimesheets(container, tasks, ctx) {
   clientSelect.addEventListener('change', () => {
     currentClientId = clientSelect.value
     const client = ctx.clients.find((c) => c.id === currentClientId)
-    rateInput.value = client?.hourlyRate || ''
+    rateInput.value = client?.hourlyRate ?? ''
     rateSaveBtn.classList.add('hidden')
     timesheetData = null
     document.getElementById('ts-result').innerHTML = ''
@@ -76,7 +76,7 @@ export async function renderTimesheets(container, tasks, ctx) {
 
   rateInput.addEventListener('input', () => {
     const client = ctx.clients.find((c) => c.id === currentClientId)
-    const currentRate = client?.hourlyRate || ''
+    const currentRate = client?.hourlyRate ?? ''
     if (rateInput.value !== String(currentRate)) {
       rateSaveBtn.classList.remove('hidden')
     } else {
@@ -90,24 +90,27 @@ export async function renderTimesheets(container, tasks, ctx) {
     const client = ctx.clients.find((c) => c.id === currentClientId)
     const rateHistory = client?.rateHistory || []
 
+    const newEffective = new Date().toISOString().split('T')[0]
+
     // Add current rate to history before changing
     if (client?.hourlyRate && client.hourlyRate !== newRate) {
       rateHistory.push({
         rate: client.hourlyRate,
         effectiveFrom: client.rateEffectiveFrom || '2020-01-01',
-        effectiveUntil: new Date().toISOString().split('T')[0],
+        effectiveUntil: newEffective,
       })
     }
 
     await updateClient(ctx.db, currentClientId, {
       hourlyRate: newRate,
-      rateEffectiveFrom: new Date().toISOString().split('T')[0],
+      rateEffectiveFrom: newEffective,
       rateHistory,
     })
 
     // Update local reference
     if (client) {
       client.hourlyRate = newRate
+      client.rateEffectiveFrom = newEffective
       client.rateHistory = rateHistory
     }
     rateSaveBtn.classList.add('hidden')
@@ -121,6 +124,11 @@ export async function renderTimesheets(container, tasks, ctx) {
   generateBtn.addEventListener('click', async () => {
     if (!currentClientId) {
       document.getElementById('ts-result').innerHTML = '<div class="ts-empty">Please select a client.</div>'
+      return
+    }
+
+    if (!currentMonth || !/^\d{4}-\d{2}$/.test(currentMonth) || Number.isNaN(new Date(currentMonth).getTime())) {
+      document.getElementById('ts-result').innerHTML = '<div class="ts-empty">Please select a month.</div>'
       return
     }
 
@@ -245,7 +253,7 @@ function renderTimesheetTable(container, data, hourlyRate, ctx) {
     <div class="ts-sheet">
       <div class="ts-sheet-header">
         <div class="ts-sheet-title">
-          ${client?.logoUrl ? `<img class="client-logo" src="${client.logoUrl}" alt="${esc(client.name)}">` : ''}
+          ${safeUrl(client?.logoUrl) ? `<img class="client-logo" src="${esc(safeUrl(client.logoUrl))}" alt="${esc(client.name)}">` : ''}
           <div>
             <h3>${esc(client?.name || 'Client')}</h3>
             <span class="ts-sheet-period">${formatMonth(data.month)}</span>
@@ -331,7 +339,9 @@ function renderTimesheetTable(container, data, hourlyRate, ctx) {
 function durationMinutes(startStr, endStr) {
   const [sh, sm] = startStr.split(':').map(Number)
   const [eh, em] = endStr.split(':').map(Number)
-  return (eh * 60 + em) - (sh * 60 + sm)
+  let diff = (eh * 60 + em) - (sh * 60 + sm)
+  if (diff < 0) diff += 24 * 60
+  return Math.max(0, diff)
 }
 
 function formatDuration(minutes) {
@@ -369,6 +379,15 @@ function fmtTime(timeStr) {
   const ampm = h >= 12 ? 'pm' : 'am'
   const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h
   return m === 0 ? `${h12}${ampm}` : `${h12}:${String(m).padStart(2, '0')}${ampm}`
+}
+
+function safeUrl(url) {
+  if (!url || typeof url !== 'string') return null
+  try {
+    const parsed = new URL(url)
+    if (parsed.protocol === 'https:' || parsed.protocol === 'http:') return url
+  } catch (_) { /* invalid URL */ }
+  return null
 }
 
 function esc(str) {
