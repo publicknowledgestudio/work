@@ -2433,13 +2433,11 @@ html, body {
   white-space: nowrap;
 }
 
-/* Scrollable grid container */
+/* Time grid container */
 .tg-scroll {
-  overflow-y: auto;
-  overflow-x: hidden;
+  overflow: visible;
   border-top: 1px solid var(--border);
   border-bottom: 1px solid var(--border);
-  scroll-behavior: smooth;
 }
 
 /* The main grid (position context) */
