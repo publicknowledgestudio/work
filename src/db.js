@@ -266,6 +266,18 @@ export async function saveDailyFocus(db, userEmail, dateStr, taskIds, timeBlocks
   return setDoc(doc(db, 'dailyFocus', docId), data, { merge: true })
 }
 
+// ===== Timesheet Queries =====
+
+export async function loadAllDailyFocusForRange(db, startDate, endDate) {
+  const q = query(
+    collection(db, 'dailyFocus'),
+    where('date', '>=', startDate),
+    where('date', '<=', endDate)
+  )
+  const snap = await getDocs(q)
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+}
+
 // ===== Notes (Granola / meeting notes) =====
 
 export async function addNote(db, data) {
