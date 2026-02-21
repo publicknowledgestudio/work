@@ -235,19 +235,7 @@ function renderTimesheetTable(container, data, ctx) {
           ${data.lineItems.map((item, i) => {
             const hours = item.totalMinutes / 60
             const amount = item.rate > 0 ? hours * item.rate : 0
-            const taskRow = `
-              <tr class="ts-task-row">
-                <td class="ts-col-num">${i + 1}</td>
-                <td class="ts-col-task">
-                  <div class="ts-task-title">${esc(item.title)}</div>
-                  ${item.project ? `<div class="ts-task-project">${esc(item.project)}</div>` : ''}
-                </td>
-                <td class="ts-col-date"></td>
-                <td class="ts-col-person"></td>
-                <td class="ts-col-time"><span class="ts-duration">${formatDuration(item.totalMinutes)}</span></td>
-                ${hasRates ? `<td class="ts-col-amount">${item.rate > 0 ? formatCurrency(amount, item.currency) : ''}</td>` : ''}
-              </tr>`
-            const blockRows = item.blocks.map((b) => {
+            return item.blocks.map((b, j) => {
               const member = TEAM.find((m) => m.email === b.userEmail)
               const avatarHtml = member
                 ? (safeUrl(member.photoURL)
@@ -255,17 +243,18 @@ function renderTimesheetTable(container, data, ctx) {
                     : `<span class="avatar-xs" style="background:${member.color}">${member.name[0]}</span>`)
                 : ''
               const nameHtml = member ? esc(member.name) : esc(b.userEmail)
+              const isFirst = j === 0
+              const isLast = j === item.blocks.length - 1
               return `
-              <tr class="ts-block-row">
-                <td class="ts-col-num"></td>
-                <td class="ts-col-task"></td>
+              <tr class="ts-entry-row${isFirst ? ' ts-entry-first' : ''}${isLast ? ' ts-entry-last' : ''}">
+                <td class="ts-col-num">${isFirst ? i + 1 : ''}</td>
+                <td class="ts-col-task">${isFirst ? `<div class="ts-task-title">${esc(item.title)}</div>${item.project ? `<div class="ts-task-project">${esc(item.project)}</div>` : ''}` : ''}</td>
                 <td class="ts-col-date">${formatDateShort(b.date)}</td>
                 <td class="ts-col-person"><span class="ts-person">${avatarHtml} ${nameHtml}</span></td>
-                <td class="ts-col-time">${fmtTime(b.start)}\u2013${fmtTime(b.end)} <span class="ts-block-duration">(${formatDuration(b.minutes)})</span></td>
-                ${hasRates ? '<td class="ts-col-amount"></td>' : ''}
+                <td class="ts-col-time">${fmtTime(b.start)}\u2013${fmtTime(b.end)} <span class="ts-block-duration">(${formatDuration(b.minutes)})</span>${isLast && item.blocks.length > 1 ? ` <span class="ts-duration">\u2014 ${formatDuration(item.totalMinutes)}</span>` : ''}</td>
+                ${hasRates ? `<td class="ts-col-amount">${isFirst && item.rate > 0 ? formatCurrency(amount, item.currency) : ''}</td>` : ''}
               </tr>`
             }).join('')
-            return taskRow + blockRows
           }).join('')}
         </tbody>
         <tfoot>
