@@ -20,6 +20,8 @@ const db = admin.firestore()
 
 const CLAUDE_API_KEY = defineSecret('CLAUDE_API_KEY')
 const SLACK_WEBHOOK_URL = defineSecret('SLACK_WEBHOOK_URL')
+const OPENCLAW_WEBHOOK_URL = defineSecret('OPENCLAW_WEBHOOK_URL')
+const OPENCLAW_WEBHOOK_SECRET = defineSecret('OPENCLAW_WEBHOOK_SECRET')
 
 // Auth middleware
 function authenticate(req, res) {
@@ -50,7 +52,9 @@ function getAssignees(t) {
  * PATCH /api/tasks/:id     - Update a task
  * DELETE /api/tasks/:id    - Delete a task
  */
-exports.api = onRequest({ secrets: [CLAUDE_API_KEY] }, async (req, res) => {
+exports.api = onRequest(
+  { secrets: [CLAUDE_API_KEY, OPENCLAW_WEBHOOK_URL, OPENCLAW_WEBHOOK_SECRET] },
+  async (req, res) => {
   cors(res)
   if (req.method === 'OPTIONS') return res.status(204).send('')
   if (!authenticate(req, res)) return
@@ -205,6 +209,32 @@ async function updateTask(req, res, taskId) {
 async function deleteTask(req, res, taskId) {
   await db.collection('tasks').doc(taskId).delete()
   res.json({ id: taskId, deleted: true })
+}
+
+// === OpenClaw Webhook ===
+
+const ASTY_EMAIL = 'asty@publicknowledge.co'
+
+function notifyOpenClaw(taskId, task, action) {
+  const webhookUrl = process.env.OPENCLAW_WEBHOOK_URL
+  const webhookSecret = process.env.OPENCLAW_WEBHOOK_SECRET
+  if (!webhookUrl) return // not configured yet — skip silently
+
+  const payload = {
+    event: 'task_assigned',
+    action,
+    task: { id: taskId, ...task },
+  }
+
+  // Fire and forget — do not await, do not block the response
+  fetch(webhookUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-webhook-secret': webhookSecret || '',
+    },
+    body: JSON.stringify(payload),
+  }).catch((err) => console.error('OpenClaw webhook error:', err))
 }
 
 // === Scrum Summary ===
