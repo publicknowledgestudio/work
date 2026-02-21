@@ -4,6 +4,7 @@ import { TEAM } from './config.js'
 let currentClientId = ''
 let currentMonth = '' // 'YYYY-MM'
 let timesheetData = null
+let latestRequestId = 0
 
 export async function renderTimesheets(container, tasks, ctx) {
   // Default to current month
@@ -89,11 +90,16 @@ async function autoGenerate(container, tasks, ctx) {
 
   resultEl.innerHTML = '<div class="ts-loading"><i class="ph ph-spinner"></i> Loading...</div>'
 
+  const requestId = ++latestRequestId
+
   try {
-    timesheetData = await generateTimesheet(ctx, tasks, currentClientId, currentMonth)
+    const data = await generateTimesheet(ctx, tasks, currentClientId, currentMonth)
+    if (requestId !== latestRequestId) return // stale response, discard
+    timesheetData = data
     renderTimesheetTable(resultEl, timesheetData, ctx)
     printBtn?.classList.toggle('hidden', timesheetData.lineItems.length === 0)
   } catch (err) {
+    if (requestId !== latestRequestId) return
     console.error('Timesheet generation error:', err)
     resultEl.innerHTML = '<div class="ts-empty">Error generating timesheet.</div>'
     printBtn?.classList.add('hidden')
