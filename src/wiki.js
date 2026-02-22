@@ -88,8 +88,7 @@ export function renderWiki(container, ctx) {
     const ref = await createProcess(ctx.db, { name })
     document.getElementById('add-process-form').classList.add('hidden')
     document.getElementById('new-process-name').value = ''
-    activeItem = { type: 'process', id: ref.id }
-    isEditing = false
+    openDetail({ type: 'process', id: ref.id })
   })
 
   document.getElementById('new-process-name').addEventListener('keydown', (e) => {
