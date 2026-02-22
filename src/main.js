@@ -15,6 +15,7 @@ import { renderMyDay } from './my-day.js'
 import { renderStandup } from './standup.js'
 import { renderClients, cleanupClients } from './clients.js'
 import { renderPeople, cleanupPeople } from './people.js'
+import { renderWiki, cleanupWiki } from './wiki.js'
 import { renderTimesheets } from './timesheets.js'
 import { openModal } from './modal.js'
 import { initContextMenu } from './context-menu.js'
@@ -474,6 +475,7 @@ function renderCurrentView() {
   // Clean up subscriptions when leaving views
   if (currentView !== 'clients') cleanupClients()
   if (currentView !== 'people') cleanupPeople()
+  if (currentView !== 'wiki') cleanupWiki()
 
   switch (currentView) {
     case 'board-status':
@@ -502,6 +504,9 @@ function renderCurrentView() {
       break
     case 'people':
       renderPeople(mainContent, ctx)
+      break
+    case 'wiki':
+      renderWiki(mainContent, ctx)
       break
     case 'timesheets':
       renderTimesheets(mainContent, allTasks, ctx)
