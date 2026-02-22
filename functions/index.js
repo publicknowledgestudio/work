@@ -141,6 +141,25 @@ exports.api = onRequest(
       return await addNote(req, res)
     }
 
+    // --- PROCESSES ---
+    if (segments[0] === 'processes') {
+      if (req.method === 'GET' && segments.length === 1) {
+        return await listProcesses(req, res)
+      }
+      if (req.method === 'GET' && segments.length === 2) {
+        return await getProcess(req, res, segments[1])
+      }
+    }
+
+    // --- AGENT CONFIG ---
+    if (segments[0] === 'agent-config') {
+      const VALID_FILES = ['soul', 'tools', 'heartbeat', 'identity', 'user']
+      if (segments.length === 2 && VALID_FILES.includes(segments[1])) {
+        if (req.method === 'GET') return await getAgentConfig(req, res, segments[1])
+        if (req.method === 'PATCH') return await updateAgentConfigHandler(req, res, segments[1])
+      }
+    }
+
     res.status(404).json({ error: 'Not found' })
   } catch (err) {
     console.error('API error:', err)
@@ -212,6 +231,38 @@ async function deleteTask(req, res, taskId) {
   res.json({ id: taskId, deleted: true })
 }
 
+// === Processes ===
+
+async function listProcesses(req, res) {
+  const snap = await db.collection('processes').orderBy('name').get()
+  res.json({ processes: snap.docs.map((d) => ({ id: d.id, ...d.data() })) })
+}
+
+async function getProcess(req, res, processId) {
+  const docRef = await db.collection('processes').doc(processId).get()
+  if (!docRef.exists) return res.status(404).json({ error: 'Process not found' })
+  res.json({ id: docRef.id, ...docRef.data() })
+}
+
+// === Agent Config ===
+
+async function getAgentConfig(req, res, file) {
+  const docRef = await db.collection('agentConfig').doc(file).get()
+  if (!docRef.exists) return res.status(404).json({ error: 'Config not found', file })
+  res.json({ file, ...docRef.data() })
+}
+
+async function updateAgentConfigHandler(req, res, file) {
+  const { content } = req.body
+  if (content === undefined) return res.status(400).json({ error: 'content is required' })
+  await db.collection('agentConfig').doc(file).set({
+    content,
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    updatedBy: req.body.updatedBy || 'api',
+  }, { merge: true })
+  res.json({ file, updated: true })
+}
+
 // === OpenClaw Webhook ===
 
 const ASTY_EMAIL = 'asty@publicknowledge.co'
@@ -262,8 +313,12 @@ exports.onTaskWritten = onDocumentWritten(
     if (!after?.exists) return // task deleted — ignore
 
     const task = after.data()
-    const assignees = task.assignees || []
-    if (!assignees.includes(ASTY_EMAIL)) return
+    const afterAssignees = task.assignees || []
+    const beforeAssignees = event.data?.before?.data()?.assignees || []
+
+    // Only notify when Asty is newly added — not on every subsequent update
+    const newlyAssigned = afterAssignees.includes(ASTY_EMAIL) && !beforeAssignees.includes(ASTY_EMAIL)
+    if (!newlyAssigned) return
 
     const action = event.data?.before?.exists ? 'updated' : 'created'
     const projectName = await lookupProjectName(task.projectId)
