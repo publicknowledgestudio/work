@@ -1,0 +1,16 @@
+{
+  "planPath": "docs/plans/2026-02-22-wiki-and-asty-config.md",
+  "tasks": [
+    {"id": 14, "subject": "Task 1: Firestore rules — processes + agentConfig", "status": "pending"},
+    {"id": 15, "subject": "Task 2: db.js — processes CRUD and agentConfig functions", "status": "pending", "blockedBy": [14]},
+    {"id": 16, "subject": "Task 3: functions/index.js — /processes and /agent-config API", "status": "pending", "blockedBy": [14]},
+    {"id": 17, "subject": "Task 4: wiki.js — Wiki view (Processes + Asty Config)", "status": "pending", "blockedBy": [15]},
+    {"id": 18, "subject": "Task 5: index.html + main.js — Wiki nav tab", "status": "pending", "blockedBy": [17]},
+    {"id": 19, "subject": "Task 6: Seed agentConfig in Firestore", "status": "pending", "blockedBy": [16]},
+    {"id": 20, "subject": "Task 7: pkwork plugin — pkwork_get_agent_config tool", "status": "pending", "blockedBy": [16]},
+    {"id": 21, "subject": "Task 8: config-sync cron job", "status": "pending"},
+    {"id": 22, "subject": "Task 9: CSS — wiki styles", "status": "pending", "blockedBy": [17]},
+    {"id": 23, "subject": "Task 10: Deploy frontend", "status": "pending", "blockedBy": [18, 19, 22]}
+  ],
+  "lastUpdated": "2026-02-22T00:00:00Z"
+}

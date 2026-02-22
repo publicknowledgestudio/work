@@ -180,6 +180,53 @@ body {
   background: var(--primary-light);
 }
 
+.nav-divider {
+  width: 1px;
+  height: 16px;
+  background: var(--border);
+  align-self: center;
+  margin: 0 4px;
+  flex-shrink: 0;
+}
+
+/* Board sub-nav */
+.board-subnav {
+  display: flex;
+  gap: 2px;
+  padding: 10px 16px 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.board-subnav-tab {
+  padding: 6px 14px;
+  border: none;
+  background: none;
+  font-family: var(--font);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  border-radius: 6px 6px 0 0;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+
+.board-subnav-tab:hover {
+  color: var(--text);
+  background: var(--bg);
+}
+
+.board-subnav-tab.active {
+  color: var(--primary);
+  background: var(--primary-light);
+}
+
+#board-body {
+  height: calc(100% - 45px);
+  overflow: auto;
+}
+
 
 .header-right {
   display: flex;
