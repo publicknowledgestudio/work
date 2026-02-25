@@ -401,7 +401,10 @@ export async function createReference(db, data) {
 }
 
 export async function updateReference(db, refId, data) {
-  return updateDoc(doc(db, 'references', refId), data)
+  return updateDoc(doc(db, 'references', refId), {
+    ...data,
+    updatedAt: serverTimestamp(),
+  })
 }
 
 export async function deleteReference(db, refId) {

@@ -211,7 +211,7 @@ function refCard(ref) {
       </div>`
     : `<div class="ref-card-placeholder">
         <span>${esc(domain ? domain[0].toUpperCase() : '?')}</span>
-        <span class="ref-card-domain" style="position:absolute;bottom:8px;left:8px;background:rgba(0,0,0,0.6);color:white;font-size:11px;padding:2px 8px;border-radius:4px;">${esc(domain)}</span>
+        <span class="ref-card-domain">${esc(domain)}</span>
       </div>`
 
   const tagsHtml = tags.length > 0

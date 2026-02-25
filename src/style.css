@@ -4639,6 +4639,9 @@ body {
   margin-top: 4px;
 }
 
+.ref-card-author { font-weight: 500; }
+.ref-card-date { color: var(--text-tertiary); }
+
 /* Responsive */
 @media (max-width: 768px) {
   .references-toolbar { flex-wrap: wrap; }

@@ -174,10 +174,10 @@ exports.api = onRequest(
       if (req.method === 'POST' && segments.length === 1) {
         return await createReference(req, res)
       }
-      if (req.method === 'PATCH' && segments.length === 2) {
+      if (req.method === 'PATCH' && segments.length === 2 && !['preview', 'search'].includes(segments[1])) {
         return await updateReference(req, res, segments[1])
       }
-      if (req.method === 'DELETE' && segments.length === 2) {
+      if (req.method === 'DELETE' && segments.length === 2 && !['preview', 'search'].includes(segments[1])) {
         return await deleteReference(req, res, segments[1])
       }
     }
@@ -820,6 +820,23 @@ async function searchReferences(req, res) {
 async function previewReference(req, res) {
   const url = req.query.url
   if (!url) return res.status(400).json({ error: 'url query parameter is required' })
+
+  // Validate URL protocol to prevent SSRF
+  try {
+    const parsed = new URL(url)
+    if (!['http:', 'https:'].includes(parsed.protocol)) {
+      return res.status(400).json({ error: 'Only http/https URLs are supported' })
+    }
+    const hostname = parsed.hostname
+    if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '0.0.0.0' ||
+        hostname.startsWith('10.') || hostname.startsWith('192.168.') ||
+        hostname.startsWith('169.254.') || hostname === '::1' ||
+        hostname.match(/^172\.(1[6-9]|2\d|3[01])\./)) {
+      return res.status(400).json({ error: 'Internal URLs are not allowed' })
+    }
+  } catch (e) {
+    return res.status(400).json({ error: 'Invalid URL' })
+  }
 
   try {
     const response = await fetch(url, {
