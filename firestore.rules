@@ -59,6 +59,18 @@ service cloud.firestore {
       allow write: if isTeamMember();
     }
 
+    // References collection (design references from Slack)
+    match /references/{referenceId} {
+      allow read: if isTeamMember();
+      allow write: if isTeamMember();
+    }
+
+    // Moodboards collection (curated reference groups)
+    match /moodboards/{moodboardId} {
+      allow read: if isTeamMember();
+      allow write: if isTeamMember();
+    }
+
     // Daily focus (per-user daily task curation)
     match /dailyFocus/{docId} {
       allow read: if isTeamMember();

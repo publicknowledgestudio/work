@@ -4451,3 +4451,186 @@ body {
   .wiki-list-panel.detail-open { display: none; }
   .wiki-detail-panel { padding: 16px; }
 }
+
+/* ===== References View ===== */
+
+.references-view { display: flex; flex-direction: column; height: 100%; }
+
+.references-header { padding: 20px 24px 16px; border-bottom: 1px solid var(--border); }
+.references-header h2 { margin: 0 0 4px; font-size: 18px; font-weight: 600; }
+.references-header p { margin: 0; font-size: 13px; color: var(--text-secondary); }
+
+.references-toolbar {
+  padding: 12px 24px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+}
+
+.references-search {
+  flex: 1;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 13px;
+  font-family: var(--font);
+  background: var(--surface);
+  outline: none;
+}
+.references-search:focus { border-color: var(--primary); }
+
+.references-filter {
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 12px;
+  font-family: var(--font);
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.references-body { flex: 1; overflow-y: auto; padding: 20px 24px; }
+
+.references-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 16px;
+}
+
+.ref-card {
+  background: var(--surface);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+  text-decoration: none;
+  color: inherit;
+  transition: box-shadow 0.15s, transform 0.15s;
+  display: block;
+}
+.ref-card:hover {
+  box-shadow: var(--shadow-lg);
+  transform: translateY(-2px);
+}
+
+.ref-card-image {
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  background-size: cover;
+  background-position: center;
+  background-color: var(--bg);
+  position: relative;
+}
+
+.ref-card-placeholder {
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 32px;
+  font-weight: 700;
+  color: white;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  position: relative;
+}
+
+.ref-card-domain {
+  position: absolute;
+  bottom: 8px;
+  left: 8px;
+  background: rgba(0, 0, 0, 0.6);
+  color: white;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  backdrop-filter: blur(4px);
+}
+
+.ref-card-body { padding: 12px; }
+
+.ref-card-title {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 0 0 8px;
+  line-height: 1.3;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.ref-card-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
+
+.ref-tag {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--primary-light);
+  color: var(--primary);
+  font-weight: 500;
+}
+
+.ref-card-meta {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+/* Mood board cards */
+.moodboard-card {
+  background: var(--surface);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  padding: 16px;
+  cursor: pointer;
+  transition: box-shadow 0.15s;
+}
+.moodboard-card:hover { box-shadow: var(--shadow); }
+
+.moodboard-card-name {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0 0 4px;
+}
+.moodboard-card-desc {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin: 0 0 12px;
+}
+.moodboard-card-count {
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+.moodboard-thumbs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  margin-bottom: 12px;
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.moodboard-thumb {
+  aspect-ratio: 16 / 10;
+  background-size: cover;
+  background-position: center;
+  background-color: var(--bg);
+}
+
+.references-empty-subtext {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  margin-top: 4px;
+}
+
+.ref-card-author { font-weight: 500; }
+.ref-card-date { color: var(--text-tertiary); }
+
+/* Responsive */
+@media (max-width: 768px) {
+  .references-toolbar { flex-wrap: wrap; }
+  .references-grid { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
+}

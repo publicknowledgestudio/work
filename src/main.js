@@ -16,6 +16,7 @@ import { renderStandup } from './standup.js'
 import { renderClients, cleanupClients } from './clients.js'
 import { renderPeople, cleanupPeople } from './people.js'
 import { renderWiki, cleanupWiki } from './wiki.js'
+import { renderReferences, cleanupReferences } from './references.js'
 import { renderTimesheets } from './timesheets.js'
 import { openModal } from './modal.js'
 import { initContextMenu } from './context-menu.js'
@@ -35,6 +36,60 @@ let clients = []
 let projects = []
 let people = []
 let unsubTasks = null
+
+// ── Hash-based routing ──
+const ROUTES = {
+  '/my-day':        { view: 'my-day' },
+  '/my-tasks':      { view: 'my-tasks' },
+  '/board':         { view: 'board', boardView: 'status' },
+  '/board/backlog': { view: 'board', boardView: 'status' },
+  '/board/team':    { view: 'board', boardView: 'assignee' },
+  '/board/clients': { view: 'board', boardView: 'client' },
+  '/board/projects':{ view: 'board', boardView: 'project' },
+  '/standup':       { view: 'standup' },
+  '/timesheets':    { view: 'timesheets' },
+  '/people':        { view: 'people' },
+  '/wiki':          { view: 'wiki' },
+  '/references':    { view: 'references' },
+  '/manage':        { view: 'clients' },
+}
+
+const VIEW_TO_PATH = {
+  'my-day': '/my-day', 'my-tasks': '/my-tasks', 'standup': '/standup',
+  'timesheets': '/timesheets', 'people': '/people', 'wiki': '/wiki',
+  'references': '/references', 'clients': '/manage',
+}
+const BOARD_TO_PATH = {
+  'status': '/board/backlog', 'assignee': '/board/team',
+  'client': '/board/clients', 'project': '/board/projects',
+}
+
+function navigateTo(view, boardView) {
+  const path = view === 'board'
+    ? (BOARD_TO_PATH[boardView || currentBoardView] || '/board/backlog')
+    : (VIEW_TO_PATH[view] || '/my-day')
+  location.hash = path
+}
+
+function handleRouteChange() {
+  const hash = (location.hash || '').replace(/^#/, '')
+  const route = ROUTES[hash]
+
+  if (route) {
+    currentView = route.view
+    if (route.boardView) currentBoardView = route.boardView
+  } else {
+    currentView = 'my-day'
+    history.replaceState(null, '', '#/my-day')
+  }
+
+  // Sync nav-tab active state
+  navTabs.forEach((t) => t.classList.toggle('active', t.dataset.view === currentView))
+
+  if (currentUser) renderCurrentView()
+}
+
+window.addEventListener('hashchange', handleRouteChange)
 
 // DOM refs
 const loginScreen = document.getElementById('login-screen')
@@ -232,7 +287,8 @@ onAuthStateChanged(auth, async (user) => {
       renderCurrentView()
     })
 
-    renderCurrentView()
+    // Read initial route from hash (or default to #/my-day)
+    handleRouteChange()
   } else {
     currentUser = null
     loginScreen.classList.remove('hidden')
@@ -241,16 +297,16 @@ onAuthStateChanged(auth, async (user) => {
       unsubTasks()
       unsubTasks = null
     }
+    cleanupClients()
+    cleanupPeople()
+    cleanupWiki()
+    cleanupReferences()
   }
 })
 
-// Navigation
+// Navigation — clicks update the hash, hashchange handler does the rest
 navTabs.forEach((tab) => {
-  tab.addEventListener('click', () => {
-    currentView = tab.dataset.view
-    navTabs.forEach((t) => t.classList.toggle('active', t === tab))
-    renderCurrentView()
-  })
+  tab.addEventListener('click', () => navigateTo(tab.dataset.view))
 })
 
 // Filters
@@ -477,6 +533,7 @@ function renderCurrentView() {
   if (currentView !== 'clients') cleanupClients()
   if (currentView !== 'people') cleanupPeople()
   if (currentView !== 'wiki') cleanupWiki()
+  if (currentView !== 'references') cleanupReferences()
 
   switch (currentView) {
     case 'board':
@@ -499,6 +556,9 @@ function renderCurrentView() {
       break
     case 'wiki':
       renderWiki(mainContent, ctx)
+      break
+    case 'references':
+      renderReferences(mainContent, ctx)
       break
     case 'timesheets':
       renderTimesheets(mainContent, allTasks, ctx)
@@ -524,10 +584,7 @@ function renderBoardContainer(container, tasks, ctx) {
   `
 
   container.querySelectorAll('.board-subnav-tab').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      currentBoardView = btn.dataset.board
-      renderCurrentView()
-    })
+    btn.addEventListener('click', () => navigateTo('board', btn.dataset.board))
   })
 
   const body = document.getElementById('board-body')
