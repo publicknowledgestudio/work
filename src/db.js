@@ -334,28 +334,3 @@ export async function updateProcessContent(db, processId, content, updatedBy) {
   })
 }
 
-// ===== Agent Config =====
-
-const AGENT_CONFIG_FILES = ['soul', 'tools', 'heartbeat', 'identity', 'user']
-
-export function subscribeToAgentConfig(db, callback) {
-  const unsubs = AGENT_CONFIG_FILES.map((file) =>
-    onSnapshot(doc(db, 'agentConfig', file), () => {
-      Promise.all(
-        AGENT_CONFIG_FILES.map(async (f) => {
-          const d = await getDoc(doc(db, 'agentConfig', f))
-          return { id: f, ...(d.exists() ? d.data() : { content: '', updatedAt: null, updatedBy: '' }) }
-        })
-      ).then(callback)
-    })
-  )
-  return () => unsubs.forEach((u) => u())
-}
-
-export async function updateAgentConfig(db, file, content, updatedBy) {
-  return setDoc(doc(db, 'agentConfig', file), {
-    content,
-    updatedAt: serverTimestamp(),
-    updatedBy,
-  }, { merge: true })
-}

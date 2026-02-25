@@ -155,13 +155,16 @@ Asty is an always-on AI agent that acts as the studio manager for Public Knowled
     gateway.log           # stdout
     gateway.err.log       # stderr
 
-~/clawd/                  # OpenClaw workspace
+~/clawd/                  # OpenClaw workspace (symlinks → ~/knowledge-base/config/)
   TOOLS.md                # Studio Manager instructions, tools, routines
   SOUL.md                 # Agent personality
   HEARTBEAT.md            # Periodic task instructions
   USER.md                 # User profile
   IDENTITY.md             # Agent identity (named after the * in PK logo)
+  AGENTS.md               # Agent definitions
 ```
+
+**Config sync:** These files live in the `asty-kb` GitHub repo under `config/`. On the VM, `~/clawd/*.md` are symlinks to `~/knowledge-base/config/*.md`. A crontab entry pulls the repo every 5 minutes: `*/5 * * * * cd ~/knowledge-base && git pull --rebase --quiet`. The old Firestore-based config-sync cron job has been disabled.
 
 ### OpenClaw Plugin: openclaw-pkwork
 

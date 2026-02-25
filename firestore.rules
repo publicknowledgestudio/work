@@ -80,10 +80,5 @@ service cloud.firestore {
       allow write: if isTeamMember();
     }
 
-    // Asty agent config (workspace files stored in Firestore)
-    match /agentConfig/{file} {
-      allow read: if isTeamMember();
-      allow write: if isTeamMember();
-    }
   }
 }

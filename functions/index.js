@@ -151,15 +151,6 @@ exports.api = onRequest(
       }
     }
 
-    // --- AGENT CONFIG ---
-    if (segments[0] === 'agent-config') {
-      const VALID_FILES = ['soul', 'tools', 'heartbeat', 'identity', 'user']
-      if (segments.length === 2 && VALID_FILES.includes(segments[1])) {
-        if (req.method === 'GET') return await getAgentConfig(req, res, segments[1])
-        if (req.method === 'PATCH') return await updateAgentConfigHandler(req, res, segments[1])
-      }
-    }
-
     res.status(404).json({ error: 'Not found' })
   } catch (err) {
     console.error('API error:', err)
@@ -242,25 +233,6 @@ async function getProcess(req, res, processId) {
   const docRef = await db.collection('processes').doc(processId).get()
   if (!docRef.exists) return res.status(404).json({ error: 'Process not found' })
   res.json({ id: docRef.id, ...docRef.data() })
-}
-
-// === Agent Config ===
-
-async function getAgentConfig(req, res, file) {
-  const docRef = await db.collection('agentConfig').doc(file).get()
-  if (!docRef.exists) return res.status(404).json({ error: 'Config not found', file })
-  res.json({ file, ...docRef.data() })
-}
-
-async function updateAgentConfigHandler(req, res, file) {
-  const { content } = req.body
-  if (content === undefined) return res.status(400).json({ error: 'content is required' })
-  await db.collection('agentConfig').doc(file).set({
-    content,
-    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    updatedBy: req.body.updatedBy || 'api',
-  }, { merge: true })
-  res.json({ file, updated: true })
 }
 
 // === OpenClaw Webhook ===

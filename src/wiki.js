@@ -5,30 +5,17 @@ import {
   updateProcess,
   deleteProcess,
   updateProcessContent,
-  subscribeToAgentConfig,
-  updateAgentConfig,
 } from './db.js'
 import { renderMarkdown } from './markdown.js'
 
-const AGENT_CONFIG_FILES = [
-  { id: 'soul',      label: 'SOUL.md',      description: 'Personality, tone, how Asty operates' },
-  { id: 'tools',     label: 'TOOLS.md',     description: 'Available tools, routines, when to use what' },
-  { id: 'heartbeat', label: 'HEARTBEAT.md', description: 'What to do on each periodic check' },
-  { id: 'identity',  label: 'IDENTITY.md',  description: 'Name, role, emoji, vibe' },
-  { id: 'user',      label: 'USER.md',      description: 'Info about the studio and team' },
-]
-
 let unsubProcesses = null
-let unsubConfig = null
 let localProcesses = []
-let localConfig = []
-let activeItem = null  // { type: 'process'|'config', id: string }
+let activeItem = null  // { type: 'process', id: string }
 let isEditing = false
 let currentCtx = null
 
 export function renderWiki(container, ctx) {
   if (unsubProcesses) unsubProcesses()
-  if (unsubConfig) unsubConfig()
   currentCtx = ctx
   activeItem = null
   isEditing = false
@@ -37,7 +24,7 @@ export function renderWiki(container, ctx) {
     <div class="wiki-view">
       <div class="wiki-header">
         <h2>Wiki</h2>
-        <p>Processes, runbooks, and Asty's configuration</p>
+        <p>Processes and runbooks</p>
       </div>
       <div class="wiki-layout">
         <div class="wiki-list-panel" id="wiki-list-panel">
@@ -55,13 +42,6 @@ export function renderWiki(container, ctx) {
               </div>
             </div>
             <div id="wiki-processes-list"></div>
-          </div>
-
-          <div class="wiki-section">
-            <div class="section-title-row">
-              <h3 class="section-title">Asty Config</h3>
-            </div>
-            <div id="wiki-config-list"></div>
           </div>
 
         </div>
@@ -104,12 +84,6 @@ export function renderWiki(container, ctx) {
       if (p) renderDetail()
     }
   })
-
-  unsubConfig = subscribeToAgentConfig(ctx.db, (configs) => {
-    localConfig = configs
-    renderConfigList()
-    if (activeItem?.type === 'config') renderDetail()
-  })
 }
 
 function renderProcessList() {
@@ -130,25 +104,6 @@ function renderProcessList() {
 
   list.querySelectorAll('.wiki-row').forEach((row) => {
     row.addEventListener('click', () => openDetail({ type: 'process', id: row.dataset.id }))
-  })
-}
-
-function renderConfigList() {
-  const list = document.getElementById('wiki-config-list')
-  if (!list) return
-
-  list.innerHTML = AGENT_CONFIG_FILES.map((f) => `
-    <div class="wiki-row${activeItem?.id === f.id && activeItem?.type === 'config' ? ' active' : ''}" data-type="config" data-id="${f.id}">
-      <i class="ph ph-file-md wiki-row-icon"></i>
-      <div class="wiki-row-info">
-        <span class="wiki-row-name">${esc(f.label)}</span>
-        <span class="wiki-row-meta">${esc(f.description)}</span>
-      </div>
-    </div>
-  `).join('')
-
-  list.querySelectorAll('.wiki-row').forEach((row) => {
-    row.addEventListener('click', () => openDetail({ type: 'config', id: row.dataset.id }))
   })
 }
 
@@ -177,48 +132,28 @@ function renderDetail() {
   const container = document.getElementById('wiki-detail-content')
   if (!container || !activeItem) return
 
-  if (activeItem.type === 'process') {
-    const process = localProcesses.find((p) => p.id === activeItem.id)
-    if (!process) return
-    renderItemDetail(container, {
-      title: process.name,
-      content: process.content || '',
-      updatedBy: process.contentUpdatedBy || '',
-      updatedAt: process.contentUpdatedAt,
-      canDelete: true,
-      isAstyConfig: false,
-      onSave: async (content) => {
-        await updateProcessContent(currentCtx.db, process.id, content, currentCtx.currentUser?.email || '')
-        isEditing = false
-      },
-      onDelete: async () => {
-        if (confirm(`Delete "${process.name}"? This cannot be undone.`)) {
-          await deleteProcess(currentCtx.db, process.id)
-          closeDetail()
-        }
-      },
-    })
-  } else {
-    const meta = AGENT_CONFIG_FILES.find((f) => f.id === activeItem.id)
-    const configDoc = localConfig.find((c) => c.id === activeItem.id)
-    if (!meta) return
-    renderItemDetail(container, {
-      title: meta.label,
-      subtitle: meta.description,
-      content: configDoc?.content || '',
-      updatedBy: configDoc?.updatedBy || '',
-      updatedAt: configDoc?.updatedAt,
-      canDelete: false,
-      isAstyConfig: true,
-      onSave: async (content) => {
-        await updateAgentConfig(currentCtx.db, activeItem.id, content, currentCtx.currentUser?.email || '')
-        isEditing = false
-      },
-    })
-  }
+  const process = localProcesses.find((p) => p.id === activeItem.id)
+  if (!process) return
+  renderItemDetail(container, {
+    title: process.name,
+    content: process.content || '',
+    updatedBy: process.contentUpdatedBy || '',
+    updatedAt: process.contentUpdatedAt,
+    canDelete: true,
+    onSave: async (content) => {
+      await updateProcessContent(currentCtx.db, process.id, content, currentCtx.currentUser?.email || '')
+      isEditing = false
+    },
+    onDelete: async () => {
+      if (confirm(`Delete "${process.name}"? This cannot be undone.`)) {
+        await deleteProcess(currentCtx.db, process.id)
+        closeDetail()
+      }
+    },
+  })
 }
 
-function renderItemDetail(container, { title, subtitle, content, updatedBy, updatedAt, canDelete, isAstyConfig, onSave, onDelete }) {
+function renderItemDetail(container, { title, subtitle, content, updatedBy, updatedAt, canDelete, onSave, onDelete }) {
   const updatedByMember = updatedBy ? TEAM.find((m) => m.email === updatedBy) : null
   const updatedByName = updatedByMember?.name || updatedBy || ''
   const dateStr = updatedAt ? formatDate(updatedAt) : ''
@@ -269,7 +204,6 @@ function renderItemDetail(container, { title, subtitle, content, updatedBy, upda
             ${canDelete ? `<button class="btn-ghost" id="wiki-delete-btn" title="Delete"><i class="ph ph-trash"></i></button>` : ''}
           </div>
         </div>
-        ${isAstyConfig ? '<div class="wiki-asty-badge"><i class="ph ph-robot"></i> Asty syncs this file to the VM every 2 hours</div>' : ''}
         ${content ? `
           <div class="page-display">
             ${metaLine}
@@ -305,9 +239,7 @@ function esc(str) {
 
 export function cleanupWiki() {
   if (unsubProcesses) { unsubProcesses(); unsubProcesses = null }
-  if (unsubConfig) { unsubConfig(); unsubConfig = null }
   localProcesses = []
-  localConfig = []
   currentCtx = null
   activeItem = null
   isEditing = false
