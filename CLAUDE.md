@@ -155,12 +155,17 @@ Asty is an always-on AI agent that acts as the studio manager for Public Knowled
     gateway.log           # stdout
     gateway.err.log       # stderr
 
-~/clawd/                  # OpenClaw workspace
-  TOOLS.md                # Studio Manager instructions, tools, routines
-  SOUL.md                 # Agent personality
-  HEARTBEAT.md            # Periodic task instructions
-  USER.md                 # User profile
-  IDENTITY.md             # Agent identity (named after the * in PK logo)
+~/knowledge-base/         # asty-kb GitHub repo (pulled every 5 min via crontab)
+  config/
+    TOOLS.md              # Studio Manager instructions, tools, routines
+    SOUL.md               # Agent personality
+    HEARTBEAT.md          # Periodic task instructions
+    USER.md               # User profile
+    IDENTITY.md           # Agent identity (named after the * in PK logo)
+    AGENTS.md             # Agent definitions
+
+~/clawd/                  # OpenClaw workspace (symlinks → ~/knowledge-base/config/)
+  *.md → ../knowledge-base/config/*.md
 ```
 
 ### OpenClaw Plugin: openclaw-pkwork
@@ -260,7 +265,7 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/ai.openclaw.gateway.plis
 
 4. **Slack thread context:** Asty needs thread config (`initialHistoryLimit: 50`, `inheritParent: true`) to read who posted what in threads. Without this, it can't identify the original poster — leading to wrong actions (e.g., adding leave to the wrong person's calendar).
 
-5. **Single point of failure:** OpenClaw gateway runs on Gyan's MacBook. If the laptop is closed/offline, Asty goes dark. Firebase/Firestore/Cloud Functions are fine (Google-managed). Oracle Cloud Free Tier is available for always-on hosting migration.
+5. **Config source of truth:** Asty's 6 config files (SOUL.md, TOOLS.md, AGENTS.md, IDENTITY.md, USER.md, HEARTBEAT.md) live in the `asty-kb` GitHub repo under `config/`. On the VM, `~/clawd/*.md` are symlinks to `~/knowledge-base/config/*.md`, and a crontab entry pulls the repo every 5 minutes. The old config-sync cron job (which fetched configs from Firestore via `pkwork_get_agent_config`) is disabled.
 
 ## Clients
 
