@@ -16,6 +16,7 @@ import { renderStandup } from './standup.js'
 import { renderClients, cleanupClients } from './clients.js'
 import { renderPeople, cleanupPeople } from './people.js'
 import { renderWiki, cleanupWiki } from './wiki.js'
+import { renderReferences, cleanupReferences } from './references.js'
 import { renderTimesheets } from './timesheets.js'
 import { openModal } from './modal.js'
 import { initContextMenu } from './context-menu.js'
@@ -477,6 +478,7 @@ function renderCurrentView() {
   if (currentView !== 'clients') cleanupClients()
   if (currentView !== 'people') cleanupPeople()
   if (currentView !== 'wiki') cleanupWiki()
+  if (currentView !== 'references') cleanupReferences()
 
   switch (currentView) {
     case 'board':
@@ -499,6 +501,9 @@ function renderCurrentView() {
       break
     case 'wiki':
       renderWiki(mainContent, ctx)
+      break
+    case 'references':
+      renderReferences(mainContent, ctx)
       break
     case 'timesheets':
       renderTimesheets(mainContent, allTasks, ctx)
