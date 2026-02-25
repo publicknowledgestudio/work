@@ -46,11 +46,12 @@ src/                    Frontend (Vite + vanilla JS)
   board.js              Kanban board view
   my-tasks.js           Personal task view
   standup.js            Standup form
+  references.js         Visual reference library (grid, search, moodboards)
   modal.js              Task create/edit modal
 functions/              Cloud Functions backend
   index.js              All API endpoints (api + slackWebhook)
 firestore.rules         Security rules (@publicknowledge.co only)
-firestore.indexes.json  Composite indexes (6 indexes)
+firestore.indexes.json  Composite indexes (12 indexes)
 CLAUDE.md               This file — project documentation
 CLAUDE_SCRUM_MASTER.md  Slack interaction guide with examples
 ```
@@ -90,6 +91,16 @@ All endpoints on `api` require header: `x-api-key: <CLAUDE_API_KEY>`
 | GET | /clients | List all clients |
 | GET | /projects | List all projects |
 | POST | /notes | Store meeting notes. Body: `{ content, source, taskIds, createdBy }` |
+| GET | /references | List references. Filters: `?clientId=x&projectId=x&tag=x&sharedBy=x&limit=50&offset=0` |
+| POST | /references | Create reference. Body: `{ url, title, description, imageUrl, tags[], clientId, projectId, sharedBy, slackMessageTs, slackChannel }` |
+| PATCH | /references/:id | Update reference fields |
+| DELETE | /references/:id | Delete reference |
+| GET | /references/search | Search references. Query: `?q=search+term` |
+| GET | /references/preview | Fetch OG metadata for a URL. Query: `?url=https://...` Returns `{ title, description, imageUrl }` |
+| GET | /moodboards | List mood boards. Filters: `?clientId=x&projectId=x` |
+| POST | /moodboards | Create mood board. Body: `{ name, description, referenceIds[], clientId, projectId, createdBy }` |
+| PATCH | /moodboards/:id | Update mood board |
+| DELETE | /moodboards/:id | Delete mood board |
 
 The `slackWebhook` endpoint accepts POST with `x-api-key` header and an `action` field:
 - `{"action": "scrum"}` — posts daily scrum summary to #daily-scrum
@@ -107,10 +118,12 @@ The task model was migrated from `assignee` (single string) to `assignees` (arra
 - **clients** — name (current: SCC Online, Hammock, Brunk, Presentations.ai)
 - **projects** — name, clientId
 - **notes** — content, source, taskIds, createdBy, createdAt
+- **references** — url, title, description, imageUrl, tags[], clientId, projectId, sharedBy, slackMessageTs, slackChannel, createdAt
+- **moodboards** — name, description, referenceIds[], clientId, projectId, createdBy, createdAt, updatedAt
 
 ## Firestore Indexes
 
-6 composite indexes deployed (see `firestore.indexes.json`):
+12 composite indexes deployed (see `firestore.indexes.json`):
 
 | Collection | Fields | Purpose |
 |------------|--------|---------|
@@ -120,6 +133,10 @@ The task model was migrated from `assignee` (single string) to `assignees` (arra
 | tasks | clientId ASC + updatedAt DESC | Filter by client |
 | tasks | projectId ASC + updatedAt DESC | Filter by project |
 | standups | userEmail ASC + date DESC | Filter standups by user |
+| references | clientId ASC + createdAt DESC | Filter references by client |
+| references | projectId ASC + createdAt DESC | Filter references by project |
+| references | tags CONTAINS + createdAt DESC | Filter references by tag |
+| references | sharedBy ASC + createdAt DESC | Filter references by who shared |
 
 **Gotcha:** The `assignees` field uses `arrayConfig: "CONTAINS"` (not `order: "ASCENDING"`). If you add a new query combination with `assignees`, you'll need a new composite index. Firestore will return a 500 error if the index doesn't exist — the error message includes a link to create it.
 
@@ -155,12 +172,17 @@ Asty is an always-on AI agent that acts as the studio manager for Public Knowled
     gateway.log           # stdout
     gateway.err.log       # stderr
 
-~/clawd/                  # OpenClaw workspace
-  TOOLS.md                # Studio Manager instructions, tools, routines
-  SOUL.md                 # Agent personality
-  HEARTBEAT.md            # Periodic task instructions
-  USER.md                 # User profile
-  IDENTITY.md             # Agent identity (named after the * in PK logo)
+~/knowledge-base/         # asty-kb GitHub repo (pulled every 5 min via crontab)
+  config/
+    TOOLS.md              # Studio Manager instructions, tools, routines
+    SOUL.md               # Agent personality
+    HEARTBEAT.md          # Periodic task instructions
+    USER.md               # User profile
+    IDENTITY.md           # Agent identity (named after the * in PK logo)
+    AGENTS.md             # Agent definitions
+
+~/clawd/                  # OpenClaw workspace (symlinks → ~/knowledge-base/config/)
+  *.md → ../knowledge-base/config/*.md
 ```
 
 ### OpenClaw Plugin: openclaw-pkwork
@@ -260,7 +282,7 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/ai.openclaw.gateway.plis
 
 4. **Slack thread context:** Asty needs thread config (`initialHistoryLimit: 50`, `inheritParent: true`) to read who posted what in threads. Without this, it can't identify the original poster — leading to wrong actions (e.g., adding leave to the wrong person's calendar).
 
-5. **Single point of failure:** OpenClaw gateway runs on Gyan's MacBook. If the laptop is closed/offline, Asty goes dark. Firebase/Firestore/Cloud Functions are fine (Google-managed). Oracle Cloud Free Tier is available for always-on hosting migration.
+5. **Config source of truth:** Asty's 6 config files (SOUL.md, TOOLS.md, AGENTS.md, IDENTITY.md, USER.md, HEARTBEAT.md) live in the `asty-kb` GitHub repo under `config/`. On the VM, `~/clawd/*.md` are symlinks to `~/knowledge-base/config/*.md`, and a crontab entry pulls the repo every 5 minutes. The old config-sync cron job (which fetched configs from Firestore via `pkwork_get_agent_config`) is disabled.
 
 ## Clients
 
