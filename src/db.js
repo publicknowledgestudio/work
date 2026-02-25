@@ -359,3 +359,84 @@ export async function updateAgentConfig(db, file, content, updatedBy) {
     updatedBy,
   }, { merge: true })
 }
+
+// ===== References =====
+
+export function subscribeToReferences(db, callback) {
+  const q = query(collection(db, 'references'), orderBy('createdAt', 'desc'))
+  return onSnapshot(q, (snap) => {
+    callback(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
+  })
+}
+
+export async function loadReferences(db, filters = {}) {
+  let q = collection(db, 'references')
+  const constraints = []
+
+  if (filters.clientId) constraints.push(where('clientId', '==', filters.clientId))
+  if (filters.projectId) constraints.push(where('projectId', '==', filters.projectId))
+  if (filters.tag) constraints.push(where('tags', 'array-contains', filters.tag))
+  if (filters.sharedBy) constraints.push(where('sharedBy', '==', filters.sharedBy))
+
+  constraints.push(orderBy('createdAt', 'desc'))
+
+  const snap = await getDocs(query(q, ...constraints))
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+}
+
+export async function createReference(db, data) {
+  return addDoc(collection(db, 'references'), {
+    url: data.url,
+    title: data.title || '',
+    description: data.description || '',
+    imageUrl: data.imageUrl || '',
+    tags: data.tags || [],
+    clientId: data.clientId || '',
+    projectId: data.projectId || '',
+    sharedBy: data.sharedBy || '',
+    slackMessageTs: data.slackMessageTs || '',
+    slackChannel: data.slackChannel || '',
+    createdAt: serverTimestamp(),
+  })
+}
+
+export async function updateReference(db, refId, data) {
+  return updateDoc(doc(db, 'references', refId), data)
+}
+
+export async function deleteReference(db, refId) {
+  return deleteDoc(doc(db, 'references', refId))
+}
+
+// ===== Moodboards =====
+
+export function subscribeToMoodboards(db, callback) {
+  const q = query(collection(db, 'moodboards'), orderBy('updatedAt', 'desc'))
+  return onSnapshot(q, (snap) => {
+    callback(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
+  })
+}
+
+export async function createMoodboard(db, data) {
+  return addDoc(collection(db, 'moodboards'), {
+    name: data.name,
+    description: data.description || '',
+    referenceIds: data.referenceIds || [],
+    clientId: data.clientId || '',
+    projectId: data.projectId || '',
+    createdBy: data.createdBy || '',
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  })
+}
+
+export async function updateMoodboard(db, boardId, data) {
+  return updateDoc(doc(db, 'moodboards', boardId), {
+    ...data,
+    updatedAt: serverTimestamp(),
+  })
+}
+
+export async function deleteMoodboard(db, boardId) {
+  return deleteDoc(doc(db, 'moodboards', boardId))
+}
