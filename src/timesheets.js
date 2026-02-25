@@ -201,6 +201,7 @@ function renderTimesheetTable(container, data, ctx) {
 
   const client = ctx.clients.find((c) => c.id === data.clientId)
   const hasRates = data.lineItems.some((item) => item.rate > 0)
+  const memberByEmail = new Map(TEAM.map((m) => [m.email, m]))
   const colCount = 5 + (hasRates ? 1 : 0) // #, Task, Date, Logged By, Time, [Amount]
 
   container.innerHTML = `
@@ -235,18 +236,18 @@ function renderTimesheetTable(container, data, ctx) {
           ${data.lineItems.map((item, i) => {
             const hours = item.totalMinutes / 60
             const amount = item.rate > 0 ? hours * item.rate : 0
-            return item.blocks.map((b, j) => {
-              const member = TEAM.find((m) => m.email === b.userEmail)
+            return item.blocks.map((b, bi) => {
+              const member = memberByEmail.get(b.userEmail)
               const avatarHtml = member
                 ? (safeUrl(member.photoURL)
                     ? `<img class="avatar-photo-xs" src="${esc(safeUrl(member.photoURL))}" alt="${esc(member.name)}">`
                     : `<span class="avatar-xs" style="background:${member.color}">${member.name[0]}</span>`)
                 : ''
               const nameHtml = member ? esc(member.name) : esc(b.userEmail)
-              const isFirst = j === 0
-              const isLast = j === item.blocks.length - 1
+              const isFirst = bi === 0
+              const isLast = bi === item.blocks.length - 1
               return `
-              <tr class="ts-entry-row${isFirst ? ' ts-entry-first' : ''}${isLast ? ' ts-entry-last' : ''}">
+              <tr class="ts-entry-row${isLast ? ' ts-entry-last' : ''}">
                 <td class="ts-col-num">${isFirst ? i + 1 : ''}</td>
                 <td class="ts-col-task">${isFirst ? `<div class="ts-task-title">${esc(item.title)}</div>${item.project ? `<div class="ts-task-project">${esc(item.project)}</div>` : ''}` : ''}</td>
                 <td class="ts-col-date">${formatDateShort(b.date)}</td>

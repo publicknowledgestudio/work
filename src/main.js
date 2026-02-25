@@ -15,6 +15,7 @@ import { renderMyDay } from './my-day.js'
 import { renderStandup } from './standup.js'
 import { renderClients, cleanupClients } from './clients.js'
 import { renderPeople, cleanupPeople } from './people.js'
+import { renderWiki, cleanupWiki } from './wiki.js'
 import { renderTimesheets } from './timesheets.js'
 import { openModal } from './modal.js'
 import { initContextMenu } from './context-menu.js'
@@ -28,6 +29,7 @@ export const db = getFirestore(app)
 // State
 let currentUser = null
 let currentView = 'my-day'
+let currentBoardView = 'status'
 let allTasks = []
 let clients = []
 let projects = []
@@ -466,7 +468,7 @@ function renderCurrentView() {
 
   // Hide filters and new-task button on non-task views
   const filterGroup = document.getElementById('filter-group')
-  const isBoardView = currentView.startsWith('board-')
+  const isBoardView = currentView === 'board'
   const isTaskView = isBoardView || currentView === 'my-tasks' || currentView === 'my-day'
   filterGroup.style.display = isTaskView ? '' : 'none'
   newTaskBtn.style.display = isTaskView ? '' : 'none'
@@ -474,19 +476,11 @@ function renderCurrentView() {
   // Clean up subscriptions when leaving views
   if (currentView !== 'clients') cleanupClients()
   if (currentView !== 'people') cleanupPeople()
+  if (currentView !== 'wiki') cleanupWiki()
 
   switch (currentView) {
-    case 'board-status':
-      renderBoard(mainContent, tasks, ctx)
-      break
-    case 'board-assignee':
-      renderBoardByAssignee(mainContent, tasks, ctx)
-      break
-    case 'board-client':
-      renderBoardByClient(mainContent, tasks, ctx)
-      break
-    case 'board-project':
-      renderBoardByProject(mainContent, tasks, ctx)
+    case 'board':
+      renderBoardContainer(mainContent, tasks, ctx)
       break
     case 'my-day':
       renderMyDay(mainContent, tasks, currentUser, ctx)
@@ -503,8 +497,44 @@ function renderCurrentView() {
     case 'people':
       renderPeople(mainContent, ctx)
       break
+    case 'wiki':
+      renderWiki(mainContent, ctx)
+      break
     case 'timesheets':
       renderTimesheets(mainContent, allTasks, ctx)
       break
+  }
+}
+
+function renderBoardContainer(container, tasks, ctx) {
+  const BOARD_TABS = [
+    { id: 'status',   label: 'Backlog' },
+    { id: 'assignee', label: 'Team' },
+    { id: 'client',   label: 'Clients' },
+    { id: 'project',  label: 'Projects' },
+  ]
+
+  container.innerHTML = `
+    <div class="board-subnav">
+      ${BOARD_TABS.map((t) => `
+        <button class="board-subnav-tab${currentBoardView === t.id ? ' active' : ''}" data-board="${t.id}">${t.label}</button>
+      `).join('')}
+    </div>
+    <div id="board-body"></div>
+  `
+
+  container.querySelectorAll('.board-subnav-tab').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      currentBoardView = btn.dataset.board
+      renderCurrentView()
+    })
+  })
+
+  const body = document.getElementById('board-body')
+  switch (currentBoardView) {
+    case 'status':   renderBoard(body, tasks, ctx); break
+    case 'assignee': renderBoardByAssignee(body, tasks, ctx); break
+    case 'client':   renderBoardByClient(body, tasks, ctx); break
+    case 'project':  renderBoardByProject(body, tasks, ctx); break
   }
 }

@@ -1,0 +1,13 @@
+{
+  "planPath": "docs/plans/2026-02-21-asty-team-member.md",
+  "tasks": [
+    {"id": 7, "subject": "Task 1: Add Asty to TEAM in config.js", "status": "pending"},
+    {"id": 8, "subject": "Task 2: Add webhook secrets and helper to Cloud Functions", "status": "pending", "blockedBy": [7]},
+    {"id": 9, "subject": "Task 3: Call notifyOpenClaw in createTask and updateTask", "status": "pending", "blockedBy": [8]},
+    {"id": 10, "subject": "Task 4: Create webhook-receiver.js on Oracle VM", "status": "pending"},
+    {"id": 11, "subject": "Task 5: Create systemd service for webhook receiver", "status": "pending", "blockedBy": [10]},
+    {"id": 12, "subject": "Task 6: Open port 3001 on Oracle VM", "status": "pending"},
+    {"id": 13, "subject": "Task 7: Set Firebase secrets and deploy", "status": "pending", "blockedBy": [9, 11, 12]}
+  ],
+  "lastUpdated": "2026-02-21T00:00:00Z"
+}

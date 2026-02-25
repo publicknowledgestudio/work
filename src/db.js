@@ -293,3 +293,69 @@ export async function addNote(db, data) {
     createdAt: serverTimestamp(),
   })
 }
+
+// ===== Processes =====
+
+export function subscribeToProcesses(db, callback) {
+  const q = query(collection(db, 'processes'), orderBy('name'))
+  return onSnapshot(q, (snap) => {
+    callback(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
+  })
+}
+
+export async function createProcess(db, data) {
+  return addDoc(collection(db, 'processes'), {
+    name: data.name,
+    content: '',
+    contentUpdatedAt: null,
+    contentUpdatedBy: '',
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  })
+}
+
+export async function updateProcess(db, processId, data) {
+  return updateDoc(doc(db, 'processes', processId), {
+    ...data,
+    updatedAt: serverTimestamp(),
+  })
+}
+
+export async function deleteProcess(db, processId) {
+  return deleteDoc(doc(db, 'processes', processId))
+}
+
+export async function updateProcessContent(db, processId, content, updatedBy) {
+  return updateDoc(doc(db, 'processes', processId), {
+    content,
+    contentUpdatedAt: serverTimestamp(),
+    contentUpdatedBy: updatedBy,
+    updatedAt: serverTimestamp(),
+  })
+}
+
+// ===== Agent Config =====
+
+const AGENT_CONFIG_FILES = ['soul', 'tools', 'heartbeat', 'identity', 'user']
+
+export function subscribeToAgentConfig(db, callback) {
+  const unsubs = AGENT_CONFIG_FILES.map((file) =>
+    onSnapshot(doc(db, 'agentConfig', file), () => {
+      Promise.all(
+        AGENT_CONFIG_FILES.map(async (f) => {
+          const d = await getDoc(doc(db, 'agentConfig', f))
+          return { id: f, ...(d.exists() ? d.data() : { content: '', updatedAt: null, updatedBy: '' }) }
+        })
+      ).then(callback)
+    })
+  )
+  return () => unsubs.forEach((u) => u())
+}
+
+export async function updateAgentConfig(db, file, content, updatedBy) {
+  return setDoc(doc(db, 'agentConfig', file), {
+    content,
+    updatedAt: serverTimestamp(),
+    updatedBy,
+  }, { merge: true })
+}
