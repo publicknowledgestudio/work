@@ -12,6 +12,7 @@
  */
 
 const { onRequest } = require('firebase-functions/v2/https')
+const { onDocumentWritten } = require('firebase-functions/v2/firestore')
 const { defineSecret } = require('firebase-functions/params')
 const admin = require('firebase-admin')
 
@@ -20,6 +21,8 @@ const db = admin.firestore()
 
 const CLAUDE_API_KEY = defineSecret('CLAUDE_API_KEY')
 const SLACK_WEBHOOK_URL = defineSecret('SLACK_WEBHOOK_URL')
+const OPENCLAW_WEBHOOK_URL = defineSecret('OPENCLAW_WEBHOOK_URL')
+const OPENCLAW_WEBHOOK_SECRET = defineSecret('OPENCLAW_WEBHOOK_SECRET')
 
 // Auth middleware
 function authenticate(req, res) {
@@ -50,7 +53,9 @@ function getAssignees(t) {
  * PATCH /api/tasks/:id     - Update a task
  * DELETE /api/tasks/:id    - Delete a task
  */
-exports.api = onRequest({ secrets: [CLAUDE_API_KEY] }, async (req, res) => {
+exports.api = onRequest(
+  { secrets: [CLAUDE_API_KEY, OPENCLAW_WEBHOOK_URL, OPENCLAW_WEBHOOK_SECRET] },
+  async (req, res) => {
   cors(res)
   if (req.method === 'OPTIONS') return res.status(204).send('')
   if (!authenticate(req, res)) return
@@ -136,6 +141,54 @@ exports.api = onRequest({ secrets: [CLAUDE_API_KEY] }, async (req, res) => {
       return await addNote(req, res)
     }
 
+    // --- PROCESSES ---
+    if (segments[0] === 'processes') {
+      if (req.method === 'GET' && segments.length === 1) {
+        return await listProcesses(req, res)
+      }
+      if (req.method === 'GET' && segments.length === 2) {
+        return await getProcess(req, res, segments[1])
+      }
+    }
+
+    // --- REFERENCES ---
+    if (segments[0] === 'references') {
+      if (segments.length === 2 && segments[1] === 'preview' && req.method === 'GET') {
+        return await previewReference(req, res)
+      }
+      if (segments.length === 2 && segments[1] === 'search' && req.method === 'GET') {
+        return await searchReferences(req, res)
+      }
+      if (req.method === 'GET' && segments.length === 1) {
+        return await listReferences(req, res)
+      }
+      if (req.method === 'POST' && segments.length === 1) {
+        return await createReference(req, res)
+      }
+      if (req.method === 'PATCH' && segments.length === 2 && !['preview', 'search'].includes(segments[1])) {
+        return await updateReference(req, res, segments[1])
+      }
+      if (req.method === 'DELETE' && segments.length === 2 && !['preview', 'search'].includes(segments[1])) {
+        return await deleteReference(req, res, segments[1])
+      }
+    }
+
+    // --- MOODBOARDS ---
+    if (segments[0] === 'moodboards') {
+      if (req.method === 'GET' && segments.length === 1) {
+        return await listMoodboards(req, res)
+      }
+      if (req.method === 'POST' && segments.length === 1) {
+        return await createMoodboard(req, res)
+      }
+      if (req.method === 'PATCH' && segments.length === 2) {
+        return await updateMoodboard(req, res, segments[1])
+      }
+      if (req.method === 'DELETE' && segments.length === 2) {
+        return await deleteMoodboard(req, res, segments[1])
+      }
+    }
+
     res.status(404).json({ error: 'Not found' })
   } catch (err) {
     console.error('API error:', err)
@@ -206,6 +259,82 @@ async function deleteTask(req, res, taskId) {
   await db.collection('tasks').doc(taskId).delete()
   res.json({ id: taskId, deleted: true })
 }
+
+// === Processes ===
+
+async function listProcesses(req, res) {
+  const snap = await db.collection('processes').orderBy('name').get()
+  res.json({ processes: snap.docs.map((d) => ({ id: d.id, ...d.data() })) })
+}
+
+async function getProcess(req, res, processId) {
+  const docRef = await db.collection('processes').doc(processId).get()
+  if (!docRef.exists) return res.status(404).json({ error: 'Process not found' })
+  res.json({ id: docRef.id, ...docRef.data() })
+}
+
+// === OpenClaw Webhook ===
+
+const ASTY_EMAIL = 'asty@publicknowledge.co'
+
+async function lookupProjectName(projectId) {
+  if (!projectId) return ''
+  const doc = await db.collection('projects').doc(projectId).get()
+  return doc.exists ? (doc.data().name || '') : ''
+}
+
+function notifyOpenClaw(taskId, task, action) {
+  const webhookUrl = process.env.OPENCLAW_WEBHOOK_URL
+  const webhookSecret = process.env.OPENCLAW_WEBHOOK_SECRET
+  if (!webhookUrl) return // not configured yet — skip silently
+
+  // Sanitize Firestore-specific objects before JSON serialization
+  const serializableTask = {
+    ...task,
+    deadline: task.deadline?.toDate ? task.deadline.toDate().toISOString() : (task.deadline || null),
+    createdAt: task.createdAt?.toDate ? task.createdAt.toDate().toISOString() : null,
+    updatedAt: task.updatedAt?.toDate ? task.updatedAt.toDate().toISOString() : null,
+    closedAt: task.closedAt?.toDate ? task.closedAt.toDate().toISOString() : null,
+  }
+
+  const payload = {
+    event: 'task_assigned',
+    action,
+    task: { id: taskId, ...serializableTask },
+  }
+
+  // Fire and forget — do not await, do not block the response
+  fetch(webhookUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-webhook-secret': webhookSecret || '',
+    },
+    body: JSON.stringify(payload),
+  }).catch((err) => console.error('OpenClaw webhook error:', err))
+}
+
+// === Firestore Trigger — Notify OpenClaw when Asty is assigned ===
+
+exports.onTaskWritten = onDocumentWritten(
+  { document: 'tasks/{taskId}', secrets: [OPENCLAW_WEBHOOK_URL, OPENCLAW_WEBHOOK_SECRET] },
+  async (event) => {
+    const after = event.data?.after
+    if (!after?.exists) return // task deleted — ignore
+
+    const task = after.data()
+    const afterAssignees = task.assignees || []
+    const beforeAssignees = event.data?.before?.data()?.assignees || []
+
+    // Only notify when Asty is newly added — not on every subsequent update
+    const newlyAssigned = afterAssignees.includes(ASTY_EMAIL) && !beforeAssignees.includes(ASTY_EMAIL)
+    if (!newlyAssigned) return
+
+    const action = event.data?.before?.exists ? 'updated' : 'created'
+    const projectName = await lookupProjectName(task.projectId)
+    notifyOpenClaw(event.params.taskId, { ...task, projectName }, action)
+  }
+)
 
 // === Scrum Summary ===
 // Returns: items closed yesterday + currently open items per team member
@@ -575,4 +704,208 @@ async function handleCreateTaskWebhook(data) {
   const ref = await db.collection('tasks').add(task)
   const assigneeStr = assignees.length > 0 ? ` → ${assignees.join(', ')}` : ''
   return `✅ Task created: *${task.title}*${assigneeStr} (${task.status}, ${task.priority} priority)`
+}
+
+// === Reference Handlers ===
+
+async function listReferences(req, res) {
+  let q = db.collection('references')
+
+  if (req.query.clientId) q = q.where('clientId', '==', req.query.clientId)
+  if (req.query.projectId) q = q.where('projectId', '==', req.query.projectId)
+  if (req.query.tag) q = q.where('tags', 'array-contains', req.query.tag)
+  if (req.query.sharedBy) q = q.where('sharedBy', '==', req.query.sharedBy)
+
+  q = q.orderBy('createdAt', 'desc')
+
+  const limit = parseInt(req.query.limit) || 50
+  const offset = parseInt(req.query.offset) || 0
+  q = q.limit(limit + offset)
+
+  const snap = await q.get()
+  const references = snap.docs
+    .map((d) => ({ id: d.id, ...d.data() }))
+    .slice(offset, offset + limit)
+  res.json({ references })
+}
+
+async function createReference(req, res) {
+  const data = req.body
+  if (!data.url) return res.status(400).json({ error: 'url is required' })
+
+  const reference = {
+    url: data.url,
+    title: data.title || '',
+    description: data.description || '',
+    imageUrl: data.imageUrl || '',
+    tags: data.tags || [],
+    clientId: data.clientId || '',
+    projectId: data.projectId || '',
+    sharedBy: data.sharedBy || '',
+    slackMessageTs: data.slackMessageTs || '',
+    slackChannel: data.slackChannel || '',
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+  }
+
+  const ref = await db.collection('references').add(reference)
+  res.status(201).json({ id: ref.id, ...reference })
+}
+
+async function updateReference(req, res, refId) {
+  const data = req.body
+  const ALLOWED = ['url', 'title', 'description', 'imageUrl', 'tags', 'clientId', 'projectId', 'sharedBy']
+  const update = { updatedAt: admin.firestore.FieldValue.serverTimestamp() }
+  for (const key of ALLOWED) {
+    if (data[key] !== undefined) update[key] = data[key]
+  }
+  await db.collection('references').doc(refId).update(update)
+  res.json({ id: refId, updated: true })
+}
+
+async function deleteReference(req, res, refId) {
+  await db.collection('references').doc(refId).delete()
+  res.json({ id: refId, deleted: true })
+}
+
+async function searchReferences(req, res) {
+  const query = req.query.q
+  if (!query) return res.status(400).json({ error: 'q query parameter is required' })
+
+  const searchTerms = query.toLowerCase().split(/\s+/)
+
+  const snap = await db.collection('references')
+    .orderBy('createdAt', 'desc')
+    .limit(200)
+    .get()
+
+  const references = snap.docs
+    .map((d) => ({ id: d.id, ...d.data() }))
+    .filter((ref) => {
+      const searchable = [
+        ref.title || '',
+        ref.description || '',
+        ref.url || '',
+        ...(ref.tags || []),
+      ].join(' ').toLowerCase()
+      return searchTerms.every((term) => searchable.includes(term))
+    })
+
+  res.json({ references })
+}
+
+async function previewReference(req, res) {
+  const url = req.query.url
+  if (!url) return res.status(400).json({ error: 'url query parameter is required' })
+
+  // Validate URL protocol to prevent SSRF
+  try {
+    const parsed = new URL(url)
+    if (!['http:', 'https:'].includes(parsed.protocol)) {
+      return res.status(400).json({ error: 'Only http/https URLs are supported' })
+    }
+    const hostname = parsed.hostname.replace(/^\[|\]$/g, '') // strip IPv6 brackets
+    if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '0.0.0.0' ||
+        hostname.startsWith('10.') || hostname.startsWith('192.168.') ||
+        hostname.startsWith('169.254.') || hostname === '::1' ||
+        hostname.startsWith('fc') || hostname.startsWith('fd') || hostname.startsWith('fe80') ||
+        hostname.endsWith('.local') || hostname.endsWith('.internal') ||
+        hostname.match(/^172\.(1[6-9]|2\d|3[01])\./)) {
+      return res.status(400).json({ error: 'Internal URLs are not allowed' })
+    }
+  } catch (e) {
+    return res.status(400).json({ error: 'Invalid URL' })
+  }
+
+  try {
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; PKWork/1.0; +https://work.publicknowledge.co)',
+        'Accept': 'text/html,application/xhtml+xml',
+      },
+      signal: AbortSignal.timeout(8000),
+    })
+
+    const contentLength = parseInt(response.headers.get('content-length') || '0', 10)
+    if (contentLength > 2 * 1024 * 1024) {
+      return res.status(400).json({ error: 'Response too large' })
+    }
+    const html = await response.text()
+    if (html.length > 2 * 1024 * 1024) {
+      return res.json({ title: '', description: '', imageUrl: '', error: 'Response too large' })
+    }
+
+    // Extract OG / meta tags using regex
+    // Check both property="og:X" content="Y" and content="Y" property="og:X" orderings
+    // Also check name="X" variants
+    function extractMeta(propName) {
+      const patterns = [
+        new RegExp(`<meta[^>]+(?:property|name)=["']${propName}["'][^>]+content=["']([^"']*)["']`, 'i'),
+        new RegExp(`<meta[^>]+content=["']([^"']*)["'][^>]+(?:property|name)=["']${propName}["']`, 'i'),
+      ]
+      for (const pattern of patterns) {
+        const match = html.match(pattern)
+        if (match && match[1]) return match[1]
+      }
+      return ''
+    }
+
+    const title = extractMeta('og:title') || extractMeta('twitter:title') || (html.match(/<title[^>]*>([^<]*)<\/title>/i) || [])[1] || ''
+    const description = extractMeta('og:description') || extractMeta('twitter:description') || extractMeta('description') || ''
+    const imageUrl = extractMeta('og:image') || extractMeta('twitter:image') || ''
+
+    res.json({ title: title.trim(), description: description.trim(), imageUrl })
+  } catch (err) {
+    console.error('Preview fetch error:', err.message)
+    res.json({ title: '', description: '', imageUrl: '', error: err.message })
+  }
+}
+
+// === Moodboard Handlers ===
+
+async function listMoodboards(req, res) {
+  let q = db.collection('moodboards')
+
+  if (req.query.clientId) q = q.where('clientId', '==', req.query.clientId)
+  if (req.query.projectId) q = q.where('projectId', '==', req.query.projectId)
+
+  q = q.orderBy('updatedAt', 'desc')
+
+  const snap = await q.get()
+  const moodboards = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+  res.json({ moodboards })
+}
+
+async function createMoodboard(req, res) {
+  const data = req.body
+  if (!data.name) return res.status(400).json({ error: 'name is required' })
+
+  const moodboard = {
+    name: data.name,
+    description: data.description || '',
+    referenceIds: data.referenceIds || [],
+    clientId: data.clientId || '',
+    projectId: data.projectId || '',
+    createdBy: data.createdBy || '',
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  }
+
+  const ref = await db.collection('moodboards').add(moodboard)
+  res.status(201).json({ id: ref.id, ...moodboard })
+}
+
+async function updateMoodboard(req, res, boardId) {
+  const data = req.body
+  const ALLOWED = ['name', 'description', 'referenceIds', 'clientId', 'projectId']
+  const update = { updatedAt: admin.firestore.FieldValue.serverTimestamp() }
+  for (const key of ALLOWED) {
+    if (data[key] !== undefined) update[key] = data[key]
+  }
+  await db.collection('moodboards').doc(boardId).update(update)
+  res.json({ id: boardId, updated: true })
+}
+
+async function deleteMoodboard(req, res, boardId) {
+  await db.collection('moodboards').doc(boardId).delete()
+  res.json({ id: boardId, deleted: true })
 }

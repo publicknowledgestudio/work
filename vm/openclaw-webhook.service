@@ -1,0 +1,18 @@
+[Unit]
+Description=OpenClaw Webhook Receiver
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/clawd
+ExecStart=/usr/bin/node /home/ubuntu/clawd/webhook-receiver.js
+Restart=always
+RestartSec=5
+Environment=PORT=3001
+Environment=WEBHOOK_SECRET=REPLACE_WITH_YOUR_SECRET
+Environment=SLACK_BOT_TOKEN=REPLACE_WITH_BOT_TOKEN_FROM_OPENCLAW_JSON
+Environment=TELL_ASTY_CHANNEL=REPLACE_WITH_CHANNEL_ID
+
+[Install]
+WantedBy=multi-user.target

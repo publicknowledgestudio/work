@@ -15,6 +15,8 @@ import { renderMyDay } from './my-day.js'
 import { renderStandup } from './standup.js'
 import { renderClients, cleanupClients } from './clients.js'
 import { renderPeople, cleanupPeople } from './people.js'
+import { renderWiki, cleanupWiki } from './wiki.js'
+import { renderReferences, cleanupReferences } from './references.js'
 import { renderTimesheets } from './timesheets.js'
 import { openModal } from './modal.js'
 import { initContextMenu } from './context-menu.js'
@@ -28,11 +30,66 @@ export const db = getFirestore(app)
 // State
 let currentUser = null
 let currentView = 'my-day'
+let currentBoardView = 'status'
 let allTasks = []
 let clients = []
 let projects = []
 let people = []
 let unsubTasks = null
+
+// ── Hash-based routing ──
+const ROUTES = {
+  '/my-day':        { view: 'my-day' },
+  '/my-tasks':      { view: 'my-tasks' },
+  '/board':         { view: 'board', boardView: 'status' },
+  '/board/backlog': { view: 'board', boardView: 'status' },
+  '/board/team':    { view: 'board', boardView: 'assignee' },
+  '/board/clients': { view: 'board', boardView: 'client' },
+  '/board/projects':{ view: 'board', boardView: 'project' },
+  '/standup':       { view: 'standup' },
+  '/timesheets':    { view: 'timesheets' },
+  '/people':        { view: 'people' },
+  '/wiki':          { view: 'wiki' },
+  '/references':    { view: 'references' },
+  '/manage':        { view: 'clients' },
+}
+
+const VIEW_TO_PATH = {
+  'my-day': '/my-day', 'my-tasks': '/my-tasks', 'standup': '/standup',
+  'timesheets': '/timesheets', 'people': '/people', 'wiki': '/wiki',
+  'references': '/references', 'clients': '/manage',
+}
+const BOARD_TO_PATH = {
+  'status': '/board/backlog', 'assignee': '/board/team',
+  'client': '/board/clients', 'project': '/board/projects',
+}
+
+function navigateTo(view, boardView) {
+  const path = view === 'board'
+    ? (BOARD_TO_PATH[boardView || currentBoardView] || '/board/backlog')
+    : (VIEW_TO_PATH[view] || '/my-day')
+  location.hash = path
+}
+
+function handleRouteChange() {
+  const hash = (location.hash || '').replace(/^#/, '')
+  const route = ROUTES[hash]
+
+  if (route) {
+    currentView = route.view
+    if (route.boardView) currentBoardView = route.boardView
+  } else {
+    currentView = 'my-day'
+    history.replaceState(null, '', '#/my-day')
+  }
+
+  // Sync nav-tab active state
+  navTabs.forEach((t) => t.classList.toggle('active', t.dataset.view === currentView))
+
+  if (currentUser) renderCurrentView()
+}
+
+window.addEventListener('hashchange', handleRouteChange)
 
 // DOM refs
 const loginScreen = document.getElementById('login-screen')
@@ -230,7 +287,8 @@ onAuthStateChanged(auth, async (user) => {
       renderCurrentView()
     })
 
-    renderCurrentView()
+    // Read initial route from hash (or default to #/my-day)
+    handleRouteChange()
   } else {
     currentUser = null
     loginScreen.classList.remove('hidden')
@@ -239,16 +297,16 @@ onAuthStateChanged(auth, async (user) => {
       unsubTasks()
       unsubTasks = null
     }
+    cleanupClients()
+    cleanupPeople()
+    cleanupWiki()
+    cleanupReferences()
   }
 })
 
-// Navigation
+// Navigation — clicks update the hash, hashchange handler does the rest
 navTabs.forEach((tab) => {
-  tab.addEventListener('click', () => {
-    currentView = tab.dataset.view
-    navTabs.forEach((t) => t.classList.toggle('active', t === tab))
-    renderCurrentView()
-  })
+  tab.addEventListener('click', () => navigateTo(tab.dataset.view))
 })
 
 // Filters
@@ -466,7 +524,7 @@ function renderCurrentView() {
 
   // Hide filters and new-task button on non-task views
   const filterGroup = document.getElementById('filter-group')
-  const isBoardView = currentView.startsWith('board-')
+  const isBoardView = currentView === 'board'
   const isTaskView = isBoardView || currentView === 'my-tasks' || currentView === 'my-day'
   filterGroup.style.display = isTaskView ? '' : 'none'
   newTaskBtn.style.display = isTaskView ? '' : 'none'
@@ -474,19 +532,12 @@ function renderCurrentView() {
   // Clean up subscriptions when leaving views
   if (currentView !== 'clients') cleanupClients()
   if (currentView !== 'people') cleanupPeople()
+  if (currentView !== 'wiki') cleanupWiki()
+  if (currentView !== 'references') cleanupReferences()
 
   switch (currentView) {
-    case 'board-status':
-      renderBoard(mainContent, tasks, ctx)
-      break
-    case 'board-assignee':
-      renderBoardByAssignee(mainContent, tasks, ctx)
-      break
-    case 'board-client':
-      renderBoardByClient(mainContent, tasks, ctx)
-      break
-    case 'board-project':
-      renderBoardByProject(mainContent, tasks, ctx)
+    case 'board':
+      renderBoardContainer(mainContent, tasks, ctx)
       break
     case 'my-day':
       renderMyDay(mainContent, tasks, currentUser, ctx)
@@ -503,8 +554,44 @@ function renderCurrentView() {
     case 'people':
       renderPeople(mainContent, ctx)
       break
+    case 'wiki':
+      renderWiki(mainContent, ctx)
+      break
+    case 'references':
+      renderReferences(mainContent, ctx)
+      break
     case 'timesheets':
       renderTimesheets(mainContent, allTasks, ctx)
       break
+  }
+}
+
+function renderBoardContainer(container, tasks, ctx) {
+  const BOARD_TABS = [
+    { id: 'status',   label: 'Backlog' },
+    { id: 'assignee', label: 'Team' },
+    { id: 'client',   label: 'Clients' },
+    { id: 'project',  label: 'Projects' },
+  ]
+
+  container.innerHTML = `
+    <div class="board-subnav">
+      ${BOARD_TABS.map((t) => `
+        <button class="board-subnav-tab${currentBoardView === t.id ? ' active' : ''}" data-board="${t.id}">${t.label}</button>
+      `).join('')}
+    </div>
+    <div id="board-body"></div>
+  `
+
+  container.querySelectorAll('.board-subnav-tab').forEach((btn) => {
+    btn.addEventListener('click', () => navigateTo('board', btn.dataset.board))
+  })
+
+  const body = document.getElementById('board-body')
+  switch (currentBoardView) {
+    case 'status':   renderBoard(body, tasks, ctx); break
+    case 'assignee': renderBoardByAssignee(body, tasks, ctx); break
+    case 'client':   renderBoardByClient(body, tasks, ctx); break
+    case 'project':  renderBoardByProject(body, tasks, ctx); break
   }
 }
