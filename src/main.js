@@ -8,7 +8,7 @@ import {
 } from 'firebase/auth'
 import { getFirestore } from 'firebase/firestore'
 import { firebaseConfig, TEAM, STATUSES } from './config.js'
-import { loadClients, loadProjects, loadPeople, subscribeToTasks, saveUserProfile, loadUserProfiles, updateTask, loadClientUser, subscribeToTasksByClient } from './db.js'
+import { loadClients, loadClientById, loadProjects, loadProjectsByClient, loadPeople, subscribeToTasks, saveUserProfile, loadUserProfiles, updateTask, loadClientUser, subscribeToTasksByClient } from './db.js'
 import { renderBoard, renderBoardByAssignee, renderBoardByClient, renderBoardByProject } from './board.js'
 import { renderMyTasks } from './my-tasks.js'
 import { renderMyDay } from './my-day.js'
@@ -309,10 +309,13 @@ onAuthStateChanged(auth, async (user) => {
       })
     }
 
-    // Load reference data
-    clients = await loadClients(db)
-    projects = await loadProjects(db)
-    if (userRole === 'team') {
+    // Load reference data — scoped for client users
+    if (userRole === 'client') {
+      clients = await loadClientById(db, userClientId)
+      projects = await loadProjectsByClient(db, userClientId)
+    } else {
+      clients = await loadClients(db)
+      projects = await loadProjects(db)
       people = await loadPeople(db)
     }
     populateFilters()

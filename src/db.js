@@ -41,6 +41,12 @@ export async function loadClients(db) {
   return snap.docs.map((d) => ({ id: d.id, ...d.data() }))
 }
 
+export async function loadClientById(db, clientId) {
+  const snap = await getDoc(doc(db, 'clients', clientId))
+  if (snap.exists()) return [{ id: snap.id, ...snap.data() }]
+  return []
+}
+
 export async function createClient(db, data) {
   return addDoc(collection(db, 'clients'), {
     name: data.name,
@@ -92,6 +98,11 @@ export async function deleteProject(db, projectId) {
 
 export async function loadProjects(db) {
   const snap = await getDocs(query(collection(db, 'projects'), orderBy('name')))
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+}
+
+export async function loadProjectsByClient(db, clientId) {
+  const snap = await getDocs(query(collection(db, 'projects'), where('clientId', '==', clientId), orderBy('name')))
   return snap.docs.map((d) => ({ id: d.id, ...d.data() }))
 }
 
