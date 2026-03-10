@@ -13,11 +13,24 @@ service cloud.firestore {
         request.auth.token.email.matches('.*@publicknowledge[.]co$');
     }
 
+    function isClientUser() {
+      return request.auth != null &&
+        exists(/databases/$(database)/documents/clientUsers/$(request.auth.token.email));
+    }
+
+    function clientIdForUser() {
+      return get(/databases/$(database)/documents/clientUsers/$(request.auth.token.email)).data.clientId;
+    }
+
     // Tasks collection
     match /tasks/{taskId} {
       allow read: if isTeamMember();
+      allow read: if isClientUser() && resource.data.clientId == clientIdForUser();
       allow create: if isTeamMember();
+      allow create: if isClientUser() && request.resource.data.clientId == clientIdForUser();
       allow update: if isTeamMember();
+      allow update: if isClientUser() && resource.data.clientId == clientIdForUser()
+                       && request.resource.data.clientId == clientIdForUser();
       allow delete: if isTeamMember();
     }
 
@@ -38,12 +51,14 @@ service cloud.firestore {
     // Clients collection
     match /clients/{clientId} {
       allow read: if isTeamMember();
+      allow read: if isClientUser() && clientId == clientIdForUser();
       allow write: if isTeamMember();
     }
 
     // Projects collection
     match /projects/{projectId} {
       allow read: if isTeamMember();
+      allow read: if isClientUser() && resource.data.clientId == clientIdForUser();
       allow write: if isTeamMember();
     }
 
@@ -84,6 +99,12 @@ service cloud.firestore {
       allow read: if isTeamMember();
       allow write: if isTeamMember() &&
         request.auth.token.email == email;
+    }
+
+    // Client users (allowlist for external client login)
+    match /clientUsers/{email} {
+      allow read, write: if isTeamMember();
+      allow read: if isClientUser() && email == request.auth.token.email;
     }
 
     // Processes collection (studio SOPs / runbooks)
