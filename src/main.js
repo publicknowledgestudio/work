@@ -49,7 +49,7 @@ let unsubTasks = null
 
 // ── Hash-based routing ──
 const ROUTES = {
-  '/my-day':        { view: 'my-day' },
+  '/my-week':       { view: 'my-day' },
   '/my-tasks':      { view: 'my-tasks' },
   '/board':         { view: 'board', boardView: 'status' },
   '/board/backlog': { view: 'board', boardView: 'status' },
@@ -67,7 +67,7 @@ const ROUTES = {
 }
 
 const VIEW_TO_PATH = {
-  'my-day': '/my-day', 'my-tasks': '/my-tasks', 'standup': '/standup',
+  'my-day': '/my-week', 'my-tasks': '/my-tasks', 'standup': '/standup',
   'timesheets': '/timesheets', 'people': '/people',
   'references': '/references', 'clients': '/manage',
   'attendance': '/attendance',
@@ -81,7 +81,7 @@ const BOARD_TO_PATH = {
 function navigateTo(view, boardView) {
   const path = view === 'board'
     ? (BOARD_TO_PATH[boardView || currentBoardView] || '/board/backlog')
-    : (VIEW_TO_PATH[view] || '/my-day')
+    : (VIEW_TO_PATH[view] || '/my-week')
   location.hash = path
 }
 
@@ -94,7 +94,7 @@ function handleRouteChange() {
     if (route.boardView) currentBoardView = route.boardView
   } else {
     currentView = userRole === 'client' ? 'client-board' : 'my-day'
-    history.replaceState(null, '', userRole === 'client' ? '#/client-board' : '#/my-day')
+    history.replaceState(null, '', userRole === 'client' ? '#/client-board' : '#/my-week')
   }
 
   // Sync nav-tab active state

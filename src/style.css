@@ -1207,8 +1207,10 @@ body {
   position: sticky;
   top: 0;
   align-self: flex-start;
-  max-height: calc(100vh - 100px);
-  overflow-y: auto;
+  height: calc(100vh - 100px);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .my-day-header {
@@ -1467,7 +1469,7 @@ body {
 }
 
 .my-day-section {
-  margin-bottom: 24px;
+  margin-bottom: 20px;
 }
 
 .my-day-section-header {
@@ -1492,10 +1494,11 @@ body {
   color: var(--text-tertiary);
 }
 
-/* Focus, Up Next & Tomorrow drop zones */
+/* Focus, Up Next & Weekday drop zones */
 .my-day-focus-list,
 .my-day-upnext-list,
-.my-day-tomorrow-list {
+.my-day-tomorrow-list,
+.my-day-weekday-list {
   min-height: 8px;
   border-radius: var(--radius);
   transition: all 0.15s;
@@ -1503,11 +1506,32 @@ body {
 
 .my-day-focus-list.drag-over,
 .my-day-upnext-list.drag-over,
-.my-day-tomorrow-list.drag-over {
+.my-day-tomorrow-list.drag-over,
+.my-day-weekday-list.drag-over {
   background: var(--primary-light);
   outline: 2px dashed var(--primary);
   outline-offset: -2px;
   min-height: 48px;
+}
+
+/* Today highlight */
+.my-day-section.day-today .my-day-section-header {
+  color: #f59e0b;
+}
+
+/* Holiday badge in week view */
+.my-week-holiday-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 8px;
+  border-radius: 10px;
+  background: #fef3c7;
+  color: #b45309;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0;
 }
 
 .my-day-empty {
@@ -1520,6 +1544,11 @@ body {
   border-radius: var(--radius);
   color: var(--text-tertiary);
   font-size: 13px;
+}
+.my-day-empty-sm {
+  padding: 8px;
+  font-size: 12px;
+  min-height: 32px;
 }
 
 .my-day-empty i.ph {
@@ -2959,6 +2988,72 @@ body {
   display: block;
 }
 
+/* Schedule submenu — mini calendar */
+.ctx-schedule-sub {
+  padding: 8px 10px;
+  min-width: 200px;
+}
+.ctx-cal-header {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text);
+  margin-bottom: 8px;
+}
+.ctx-cal-days {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  text-align: center;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  margin-bottom: 4px;
+}
+.ctx-cal-we {
+  color: var(--primary);
+}
+.ctx-cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+  margin-bottom: 4px;
+}
+.ctx-cal-day {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+.ctx-cal-day:hover {
+  background: var(--primary-light);
+  color: var(--primary);
+}
+.ctx-cal-day.today {
+  background: var(--primary);
+  color: white;
+}
+.ctx-cal-day.today:hover {
+  background: var(--primary-hover);
+  color: white;
+}
+.ctx-cal-day.past {
+  color: var(--text-tertiary);
+}
+.ctx-cal-day.weekend {
+  color: var(--primary);
+}
+
 /* ===== My Day — Floating Add Bar ===== */
 .myday-add-spacer {
   height: 72px;
@@ -3020,6 +3115,9 @@ body {
   display: flex;
   flex-direction: column;
   gap: 0;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .tg-connect {
@@ -3134,8 +3232,9 @@ body {
 
 /* Time grid container */
 .tg-scroll {
-  overflow-y: auto;
-  overflow-x: hidden;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 
 /* The main grid (position context) */

@@ -1,5 +1,5 @@
 import { TEAM, STATUSES } from './config.js'
-import { updateTask, createTask, loadDailyFocus, saveDailyFocus } from './db.js'
+import { updateTask, createTask, loadDailyFocus, saveDailyFocus, loadHolidays } from './db.js'
 import { openModal } from './modal.js'
 import { attachMention } from './mention.js'
 import { loadCalendarEvents } from './calendar.js'
@@ -7,9 +7,8 @@ import { renderTimeGrid, bindTimeGridActions, isTimeGridDragging } from './time-
 
 let focusTaskIds = []
 let timeBlocks = []
-let tomorrowTaskIds = []
+let weekData = {} // { 'YYYY-MM-DD': { taskIds: [], label: 'Monday', isToday: bool } }
 let todayStr = ''
-let tomorrowStr = ''
 let viewingEmail = '' // email of the person whose day we're viewing
 let calendarDate = null // null = today, or a Date object for a different day
 let selectedClientId = '' // '' = all clients
@@ -22,60 +21,110 @@ export async function renderMyDay(container, tasks, currentUser, ctx) {
 
   const now = new Date()
   todayStr = now.toISOString().split('T')[0]
-  const tomorrowDate = new Date(now)
-  tomorrowDate.setDate(tomorrowDate.getDate() + 1)
-  tomorrowStr = tomorrowDate.toISOString().split('T')[0]
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
 
-  // Load daily focus for today and tomorrow
-  const focusData = await loadDailyFocus(ctx.db, targetEmail, todayStr)
+  // Compute current week (Mon-Sun)
+  const dayOfWeek = now.getDay() // 0=Sun, 1=Mon...
+  const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek
+  const monday = new Date(now)
+  monday.setDate(now.getDate() + mondayOffset)
+  const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+  const weekDates = [] // [{dateStr, label, isToday, isPast, isWeekend}]
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(monday)
+    d.setDate(monday.getDate() + i)
+    const dateStr = d.toISOString().split('T')[0]
+    weekDates.push({
+      dateStr,
+      label: dayNames[i],
+      isToday: dateStr === todayStr,
+      isPast: dateStr < todayStr,
+      isWeekend: i >= 5,
+      date: d,
+    })
+  }
+
+  // Load daily focus for today + holidays in parallel
+  const [focusData, allHolidays] = await Promise.all([
+    loadDailyFocus(ctx.db, targetEmail, todayStr),
+    loadHolidays(ctx.db),
+  ])
   focusTaskIds = focusData.taskIds
   timeBlocks = focusData.timeBlocks
-  const tomorrowData = await loadDailyFocus(ctx.db, targetEmail, tomorrowStr)
-  tomorrowTaskIds = tomorrowData.taskIds
 
-  // Filter out stale IDs (tasks that no longer exist) — keep done tasks so they persist on the calendar
-  // Skip cleanup if tasks haven't loaded yet (empty array) to avoid wiping valid focus data
+  // Build holiday lookup for this week
+  const weekDateSet = new Set(weekDates.map((wd) => wd.dateStr))
+  const holidayMap = new Map() // dateStr → holiday name
+  for (const h of allHolidays) {
+    if (weekDateSet.has(h.date)) {
+      holidayMap.set(h.date, h.name)
+    }
+  }
+
+  // Load daily focus for all weekdays in parallel
+  const weekFocusResults = await Promise.all(
+    weekDates.map((wd) => wd.isToday
+      ? Promise.resolve(focusData)
+      : loadDailyFocus(ctx.db, targetEmail, wd.dateStr)
+    )
+  )
+
+  // Build weekData
+  weekData = {}
+  for (let i = 0; i < weekDates.length; i++) {
+    const wd = weekDates[i]
+    let taskIds = weekFocusResults[i].taskIds
+    // Clean stale IDs for non-today days (remove done tasks from future, keep for past/today)
+    if (tasks.length > 0 && !wd.isToday && !wd.isPast && isOwnDay) {
+      const cleaned = taskIds.filter((id) => {
+        const t = tasks.find((task) => task.id === id)
+        return t && t.status !== 'done'
+      })
+      if (cleaned.length !== taskIds.length) {
+        taskIds = cleaned
+        saveDailyFocus(ctx.db, targetEmail, wd.dateStr, taskIds)
+      }
+    }
+    weekData[wd.dateStr] = { taskIds: [...new Set(taskIds)], label: wd.label, isToday: wd.isToday, isPast: wd.isPast, date: wd.date }
+  }
+
+  // Filter stale IDs for today's focus
   const validFocusIds = tasks.length > 0
     ? focusTaskIds.filter((id) => tasks.find((task) => task.id === id))
     : focusTaskIds
   if (tasks.length > 0 && validFocusIds.length !== focusTaskIds.length && isOwnDay) {
     focusTaskIds = validFocusIds
-    // Also clean time blocks for removed tasks
     const focusSet = new Set(focusTaskIds)
     timeBlocks = timeBlocks.filter((b) => focusSet.has(b.taskId))
     saveDailyFocus(ctx.db, targetEmail, todayStr, focusTaskIds, timeBlocks)
+    weekData[todayStr].taskIds = focusTaskIds
   }
 
   const focusTasks = (isOwnDay ? validFocusIds : focusTaskIds)
     .map((id) => tasks.find((t) => t.id === id))
     .filter(Boolean)
 
-  // Filter stale tomorrow IDs — remove done tasks from tomorrow (already completed)
-  // Skip cleanup if tasks haven't loaded yet
-  const validTomorrowIds = tasks.length > 0
-    ? tomorrowTaskIds.filter((id) => {
-        const t = tasks.find((task) => task.id === id)
-        return t && t.status !== 'done'
-      })
-    : tomorrowTaskIds
-  if (tasks.length > 0 && validTomorrowIds.length !== tomorrowTaskIds.length && isOwnDay) {
-    tomorrowTaskIds = validTomorrowIds
-    saveDailyFocus(ctx.db, targetEmail, tomorrowStr, tomorrowTaskIds)
+  // Build set of all tasks assigned to a weekday
+  const weekTaskIdSet = new Set()
+  for (const wd of Object.values(weekData)) {
+    for (const id of wd.taskIds) weekTaskIdSet.add(id)
   }
-  const tomorrowTasks = (isOwnDay ? validTomorrowIds : tomorrowTaskIds)
-    .map((id) => tasks.find((t) => t.id === id))
-    .filter(Boolean)
 
-  // Up Next: active tasks not in tomorrow for viewed user
-  // Note: tasks scheduled on the calendar stay in Up Next (with a scheduled badge)
-  const tomorrowSet = new Set(tomorrowTaskIds)
+  // Resolve week day tasks
+  const weekDayTasks = {} // dateStr → task[]
+  for (const [dateStr, wd] of Object.entries(weekData)) {
+    weekDayTasks[dateStr] = wd.taskIds
+      .map((id) => tasks.find((t) => t.id === id))
+      .filter(Boolean)
+  }
+
+  // Up Next (Unscheduled): active tasks not assigned to any weekday
   const upNext = tasks
     .filter((t) =>
       (t.assignees || []).includes(targetEmail) &&
       t.status !== 'done' &&
       t.status !== 'backlog' &&
-      !tomorrowSet.has(t.id)
+      !weekTaskIdSet.has(t.id)
     )
     .sort((a, b) => priorityWeight(b.priority) - priorityWeight(a.priority))
 
@@ -121,7 +170,8 @@ export async function renderMyDay(container, tasks, currentUser, ctx) {
     : `${esc(viewingName.split(' ')[0])}'s Week`
 
   // Build client filter data — count only tasks visible in sections
-  const visibleTasks = [...upNext, ...tomorrowTasks, ...completedToday]
+  const allWeekTasks = Object.values(weekDayTasks).flat()
+  const visibleTasks = [...upNext, ...allWeekTasks, ...completedToday]
   const clientCounts = new Map() // clientId → count
   for (const t of visibleTasks) {
     const cid = t.clientId || ''
@@ -141,8 +191,11 @@ export async function renderMyDay(container, tasks, currentUser, ctx) {
   // Filter task lists by selected client
   const clientFilter = (t) => !selectedClientId || t.clientId === selectedClientId
   const filteredUpNext = upNext.filter(clientFilter)
-  const filteredTomorrowTasks = tomorrowTasks.filter(clientFilter)
   const filteredCompletedToday = completedToday.filter(clientFilter)
+  const filteredWeekDayTasks = {}
+  for (const [dateStr, dayTasks] of Object.entries(weekDayTasks)) {
+    filteredWeekDayTasks[dateStr] = dayTasks.filter(clientFilter)
+  }
 
   // Split events
   const allDayEvents = calendarEvents.filter((e) => e.allDay)
@@ -212,22 +265,32 @@ export async function renderMyDay(container, tasks, currentUser, ctx) {
           </div>
         </div>
 
-        <!-- Tomorrow Section -->
-        <div class="my-day-section">
-          <div class="my-day-section-header">
-            <i class="ph-fill ph-calendar-plus" style="color:#6366f1"></i>
-            <span>Tomorrow</span>
-            <span class="my-day-count">${filteredTomorrowTasks.length}</span>
+        <!-- Weekday Sections (Mon-Sun) -->
+        ${weekDates.map((wd) => {
+          const dayTasks = filteredWeekDayTasks[wd.dateStr] || []
+          const holiday = holidayMap.get(wd.dateStr)
+          const dayIcon = wd.isToday ? 'ph-fill ph-star' : wd.isPast ? 'ph ph-calendar-check' : 'ph-fill ph-calendar-plus'
+          const dayColor = wd.isToday ? '#f59e0b' : wd.isPast ? '#94a3b8' : '#6366f1'
+          const shortDate = wd.date.toLocaleDateString('en-IN', { month: 'short', day: 'numeric' })
+          const dayLabel = wd.isToday ? `Today · ${wd.label}` : `${wd.label} · ${shortDate}`
+          return `
+          <div class="my-day-section${wd.isPast && !wd.isToday ? ' day-past' : ''}${wd.isToday ? ' day-today' : ''}${wd.isWeekend ? ' day-weekend' : ''}">
+            <div class="my-day-section-header">
+              <i class="${dayIcon}" style="color:${dayColor}"></i>
+              <span>${dayLabel}</span>
+              ${holiday ? `<span class="my-week-holiday-badge"><i class="ph-fill ph-flag-pennant"></i> ${esc(holiday)}</span>` : ''}
+              <span class="my-day-count">${dayTasks.length}</span>
+            </div>
+            <div class="my-day-weekday-list" data-drop="weekday" data-date="${wd.dateStr}">
+              ${dayTasks.length > 0 ? dayTasks.map((t) => weekdayCard(t, ctx, now, isOwnDay, wd.dateStr, wd.isPast)).join('') : `
+                <div class="my-day-empty my-day-empty-sm">
+                  ${wd.isPast ? '' : `<span>${isOwnDay ? 'Drag tasks here' : 'Nothing planned'}</span>`}
+                </div>
+              `}
+            </div>
           </div>
-          <div class="my-day-tomorrow-list" data-drop="tomorrow">
-            ${filteredTomorrowTasks.length > 0 ? filteredTomorrowTasks.map((t) => tomorrowCard(t, ctx, now, isOwnDay)).join('') : `
-              <div class="my-day-empty">
-                <i class="ph ph-calendar-blank" style="font-size:24px;opacity:0.3"></i>
-                <span>${isOwnDay ? 'Plan ahead — drag or add tasks for tomorrow' : 'Nothing planned for tomorrow'}</span>
-              </div>
-            `}
-          </div>
-        </div>
+          `
+        }).join('')}
 
         <!-- Completed Today -->
         ${filteredCompletedToday.length > 0 ? `
@@ -309,7 +372,7 @@ function upNextCard(task, ctx, now, isOwnDay, isScheduled) {
   `
 }
 
-function tomorrowCard(task, ctx, now, isOwnDay) {
+function weekdayCard(task, ctx, now, isOwnDay, dateStr, isPast) {
   const project = ctx.projects.find((p) => p.id === task.projectId)
   const client = ctx.clients.find((c) => c.id === task.clientId)
   const clientLogo = client?.logoUrl
@@ -319,7 +382,7 @@ function tomorrowCard(task, ctx, now, isOwnDay) {
   const deadlineHtml = deadlineTag(task, now)
 
   return `
-    <div class="my-day-card tomorrow" data-id="${task.id}" draggable="${isOwnDay}">
+    <div class="my-day-card weekday${isPast ? ' past' : ''}${task.status === 'done' ? ' completed' : ''}" data-id="${task.id}" data-date="${dateStr}" draggable="${isOwnDay}">
       <div class="my-day-card-main">
         ${statusIcon(task.status)}
         ${task.priority === 'urgent' ? '<i class="ph-fill ph-warning urgent-icon"></i>' : ''}
@@ -333,10 +396,7 @@ function tomorrowCard(task, ctx, now, isOwnDay) {
       </div>
       ${isOwnDay ? `
       <div class="my-day-card-actions">
-        <button class="my-day-action-btn" data-action="move-to-today" data-id="${task.id}" title="Move to today">
-          <i class="ph ph-arrow-fat-up"></i>
-        </button>
-        <button class="my-day-action-btn" data-action="remove-tomorrow" data-id="${task.id}" title="Remove from tomorrow">
+        <button class="my-day-action-btn" data-action="remove-weekday" data-id="${task.id}" data-date="${dateStr}" title="Remove from this day">
           <i class="ph ph-x"></i>
         </button>
       </div>
@@ -515,30 +575,23 @@ function bindMyDayActions(container, tasks, currentUser, ctx, now, isOwnDay) {
     })
   })
 
-  // Move from tomorrow to today
-  container.querySelectorAll('[data-action="move-to-today"]').forEach((btn) => {
+  // Remove from weekday
+  container.querySelectorAll('[data-action="remove-weekday"]').forEach((btn) => {
     btn.addEventListener('click', async (e) => {
       e.stopPropagation()
       const id = btn.dataset.id
-      // Remove from tomorrow
-      tomorrowTaskIds = tomorrowTaskIds.filter((fid) => fid !== id)
-      await saveDailyFocus(ctx.db, myEmail, tomorrowStr, tomorrowTaskIds)
-      // Add to today
-      if (!focusTaskIds.includes(id)) {
-        focusTaskIds.push(id)
+      const dateStr = btn.dataset.date
+      const wd = weekData[dateStr]
+      if (!wd) return
+      wd.taskIds = wd.taskIds.filter((fid) => fid !== id)
+      // If removing from today, also clean focusTaskIds/timeBlocks
+      if (dateStr === todayStr) {
+        focusTaskIds = focusTaskIds.filter((fid) => fid !== id)
+        timeBlocks = timeBlocks.filter((b) => b.taskId !== id)
         await saveDailyFocus(ctx.db, myEmail, todayStr, focusTaskIds, timeBlocks)
+      } else {
+        await saveDailyFocus(ctx.db, myEmail, dateStr, wd.taskIds)
       }
-      renderMyDay(container, tasks, currentUser, ctx)
-    })
-  })
-
-  // Remove from tomorrow
-  container.querySelectorAll('[data-action="remove-tomorrow"]').forEach((btn) => {
-    btn.addEventListener('click', async (e) => {
-      e.stopPropagation()
-      const id = btn.dataset.id
-      tomorrowTaskIds = tomorrowTaskIds.filter((fid) => fid !== id)
-      await saveDailyFocus(ctx.db, myEmail, tomorrowStr, tomorrowTaskIds)
       renderMyDay(container, tasks, currentUser, ctx)
     })
   })
@@ -609,11 +662,8 @@ function bindMyDayActions(container, tasks, currentUser, ctx, now, isOwnDay) {
     })
   }
 
-  // Drop zones (upnext, tomorrow — focus is now handled by time grid)
-  const upnextZone = container.querySelector('[data-drop="upnext"]')
-  const tomorrowZone = container.querySelector('[data-drop="tomorrow"]')
-
-  ;[upnextZone, tomorrowZone].filter(Boolean).forEach((zone) => {
+  // Drop zones (upnext + weekday sections)
+  container.querySelectorAll('[data-drop]').forEach((zone) => {
     zone.addEventListener('dragover', (e) => {
       e.preventDefault()
       e.dataTransfer.dropEffect = 'move'
@@ -628,29 +678,40 @@ function bindMyDayActions(container, tasks, currentUser, ctx, now, isOwnDay) {
       e.preventDefault()
       zone.classList.remove('drag-over')
       const taskId = e.dataTransfer.getData('text/plain')
-      const dropTarget = zone.dataset.drop
+      const dropType = zone.dataset.drop
+      const dropDate = zone.dataset.date
       let changed = false
 
-      // Remove from wherever it currently is
-      if (focusTaskIds.includes(taskId)) {
-        focusTaskIds = focusTaskIds.filter((id) => id !== taskId)
-        timeBlocks = timeBlocks.filter((b) => b.taskId !== taskId)
-        await saveDailyFocus(ctx.db, myEmail, todayStr, focusTaskIds, timeBlocks)
-        changed = true
-      }
-      if (tomorrowTaskIds.includes(taskId)) {
-        tomorrowTaskIds = tomorrowTaskIds.filter((id) => id !== taskId)
-        await saveDailyFocus(ctx.db, myEmail, tomorrowStr, tomorrowTaskIds)
-        changed = true
+      // Remove from wherever it currently is (any weekday or today's focus)
+      for (const [dateStr, wd] of Object.entries(weekData)) {
+        if (wd.taskIds.includes(taskId)) {
+          wd.taskIds = wd.taskIds.filter((id) => id !== taskId)
+          if (dateStr === todayStr) {
+            focusTaskIds = focusTaskIds.filter((id) => id !== taskId)
+            timeBlocks = timeBlocks.filter((b) => b.taskId !== taskId)
+            await saveDailyFocus(ctx.db, myEmail, todayStr, focusTaskIds, timeBlocks)
+          } else {
+            await saveDailyFocus(ctx.db, myEmail, dateStr, wd.taskIds)
+          }
+          changed = true
+        }
       }
 
       // Add to the target zone
-      if (dropTarget === 'tomorrow' && !tomorrowTaskIds.includes(taskId)) {
-        tomorrowTaskIds.push(taskId)
-        await saveDailyFocus(ctx.db, myEmail, tomorrowStr, tomorrowTaskIds)
-        changed = true
+      if (dropType === 'weekday' && dropDate) {
+        const wd = weekData[dropDate]
+        if (wd && !wd.taskIds.includes(taskId)) {
+          wd.taskIds.push(taskId)
+          if (dropDate === todayStr) {
+            focusTaskIds.push(taskId)
+            await saveDailyFocus(ctx.db, myEmail, todayStr, focusTaskIds, timeBlocks)
+          } else {
+            await saveDailyFocus(ctx.db, myEmail, dropDate, wd.taskIds)
+          }
+          changed = true
+        }
       }
-      // dropTarget === 'upnext' just removes from focus/tomorrow (already done above)
+      // dropType === 'upnext' just removes (already done above)
 
       if (changed) renderMyDay(container, tasks, currentUser, ctx)
     })

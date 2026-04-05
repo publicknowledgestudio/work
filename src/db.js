@@ -329,7 +329,7 @@ export async function loadDailyFocus(db, userEmail, dateStr) {
 
 export async function saveDailyFocus(db, userEmail, dateStr, taskIds, timeBlocks) {
   const docId = `${userEmail}_${dateStr}`
-  const data = { userEmail, date: dateStr, taskIds, updatedAt: serverTimestamp() }
+  const data = { userEmail, date: dateStr, taskIds: [...new Set(taskIds)], updatedAt: serverTimestamp() }
   if (timeBlocks !== undefined) {
     data.timeBlocks = timeBlocks
   }
@@ -584,6 +584,12 @@ export function subscribeToHolidays(db, callback) {
   return onSnapshot(q, (snap) => {
     callback(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
   })
+}
+
+export async function loadHolidays(db) {
+  const q = query(collection(db, 'holidays'), orderBy('date', 'asc'))
+  const snap = await getDocs(q)
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }))
 }
 
 export async function createHoliday(db, data) {

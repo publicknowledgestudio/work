@@ -43,16 +43,39 @@ function showMenu(x, y, ctx) {
   openSubmenu = null
 
   const todayStr = new Date().toISOString().split('T')[0]
-  const tomorrowDate = new Date()
-  tomorrowDate.setDate(tomorrowDate.getDate() + 1)
-  const tomorrowStr = tomorrowDate.toISOString().split('T')[0]
+
+  // Build 2-week mini calendar (current week Mon-Sun + next week Mon-Sun)
+  const now = new Date()
+  const dow = now.getDay()
+  const mondayOffset = dow === 0 ? -6 : 1 - dow
+  const monday = new Date(now)
+  monday.setDate(now.getDate() + mondayOffset)
+  const calDays = []
+  for (let i = 0; i < 14; i++) {
+    const d = new Date(monday)
+    d.setDate(monday.getDate() + i)
+    const ds = d.toISOString().split('T')[0]
+    calDays.push({ date: d, dateStr: ds, day: d.getDate(), isToday: ds === todayStr, isPast: ds < todayStr, isWeekend: d.getDay() === 0 || d.getDay() === 6 })
+  }
+  const week1 = calDays.slice(0, 7)
+  const week2 = calDays.slice(7, 14)
 
   menuEl.innerHTML = `
-    <div class="ctx-item" data-action="add-to-my-day">
-      <i class="ph-fill ph-sun"></i> Add to My Day
-    </div>
-    <div class="ctx-item" data-action="add-to-tomorrow">
-      <i class="ph ph-calendar-plus"></i> Add to Tomorrow
+    <div class="ctx-item has-sub" data-sub="schedule">
+      <i class="ph ph-calendar-plus"></i> Schedule Task
+      <i class="ph ph-caret-right ctx-arrow"></i>
+      <div class="ctx-submenu ctx-schedule-sub" data-sub-id="schedule">
+        <div class="ctx-cal-header">Schedule Task</div>
+        <div class="ctx-cal-days">
+          <span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span class="ctx-cal-we">S</span><span class="ctx-cal-we">S</span>
+        </div>
+        <div class="ctx-cal-grid">
+          ${week1.map((d) => `<button class="ctx-cal-day${d.isToday ? ' today' : ''}${d.isPast ? ' past' : ''}${d.isWeekend ? ' weekend' : ''}" data-action="schedule" data-date="${d.dateStr}">${d.day}</button>`).join('')}
+        </div>
+        <div class="ctx-cal-grid">
+          ${week2.map((d) => `<button class="ctx-cal-day${d.isWeekend ? ' weekend' : ''}" data-action="schedule" data-date="${d.dateStr}">${d.day}</button>`).join('')}
+        </div>
+      </div>
     </div>
     <div class="ctx-separator"></div>
     <div class="ctx-item" data-action="duplicate">
@@ -158,34 +181,20 @@ function bindMenuActions(ctx, task) {
     }
   })
 
-  // Add to My Day
-  menuEl.querySelector('[data-action="add-to-my-day"]')?.addEventListener('click', async () => {
-    closeMenu()
-    const email = ctx.currentUser?.email
-    if (!email) return
-    const todayStr = new Date().toISOString().split('T')[0]
-    const current = await loadDailyFocus(ctx.db, email, todayStr)
-    if (!current.includes(task.id)) {
-      current.push(task.id)
-      await saveDailyFocus(ctx.db, email, todayStr, current)
-    }
-    ctx.onSave?.()
-  })
-
-  // Add to Tomorrow
-  menuEl.querySelector('[data-action="add-to-tomorrow"]')?.addEventListener('click', async () => {
-    closeMenu()
-    const email = ctx.currentUser?.email
-    if (!email) return
-    const tom = new Date()
-    tom.setDate(tom.getDate() + 1)
-    const tomorrowStr = tom.toISOString().split('T')[0]
-    const current = await loadDailyFocus(ctx.db, email, tomorrowStr)
-    if (!current.includes(task.id)) {
-      current.push(task.id)
-      await saveDailyFocus(ctx.db, email, tomorrowStr, current)
-    }
-    ctx.onSave?.()
+  // Schedule to a specific day
+  menuEl.querySelectorAll('[data-action="schedule"]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      closeMenu()
+      const email = ctx.currentUser?.email
+      if (!email) return
+      const dateStr = btn.dataset.date
+      const focus = await loadDailyFocus(ctx.db, email, dateStr)
+      if (!focus.taskIds.includes(task.id)) {
+        focus.taskIds.push(task.id)
+        await saveDailyFocus(ctx.db, email, dateStr, focus.taskIds, focus.timeBlocks)
+      }
+      ctx.onSave?.()
+    })
   })
 
   // Duplicate
