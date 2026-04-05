@@ -75,6 +75,10 @@ export function renderClients(container, ctx) {
                     </select>
                   </div>
                 </div>
+                <div class="rate-field" style="width:100%">
+                  <label class="form-label-sm">Slack Channel ID</label>
+                  <input type="text" id="new-client-slack" class="form-input" placeholder="e.g. C08UCQXH7D0">
+                </div>
                 <div class="inline-form-actions">
                   <button class="btn-primary" id="save-client-btn">Add</button>
                   <button class="btn-ghost" id="cancel-client-btn">Cancel</button>
@@ -162,6 +166,7 @@ export function renderClients(container, ctx) {
 
   const newClientRate = document.getElementById('new-client-rate')
   const newClientCurrency = document.getElementById('new-client-currency')
+  const newClientSlack = document.getElementById('new-client-slack')
 
   let selectedLogoFile = null
   let existingLogoUrl = ''
@@ -200,6 +205,7 @@ export function renderClients(container, ctx) {
     newClientName.value = ''
     newClientRate.value = ''
     newClientCurrency.value = 'INR'
+    newClientSlack.value = ''
     resetLogoForm()
     addClientForm.classList.remove('hidden')
     saveClientBtn.textContent = 'Add'
@@ -219,6 +225,7 @@ export function renderClients(container, ctx) {
 
     const defaultHourlyRate = parseFloat(newClientRate.value) || 0
     const currency = newClientCurrency.value || 'INR'
+    const slackChannelId = newClientSlack.value.trim()
 
     try {
       if (editingClientId) {
@@ -226,11 +233,11 @@ export function renderClients(container, ctx) {
         if (selectedLogoFile) {
           logoUrl = await uploadClientLogo(selectedLogoFile, editingClientId)
         }
-        await updateClient(ctx.db, editingClientId, { name, logoUrl, defaultHourlyRate, currency })
+        await updateClient(ctx.db, editingClientId, { name, logoUrl, defaultHourlyRate, currency, slackChannelId })
         editingClientId = null
       } else {
         // Create first to get an ID, then upload logo
-        const docRef = await createClient(ctx.db, { name, logoUrl: '', defaultHourlyRate, currency })
+        const docRef = await createClient(ctx.db, { name, logoUrl: '', defaultHourlyRate, currency, slackChannelId })
         if (selectedLogoFile) {
           const logoUrl = await uploadClientLogo(selectedLogoFile, docRef.id)
           await updateClient(ctx.db, docRef.id, { logoUrl })
@@ -243,6 +250,7 @@ export function renderClients(container, ctx) {
     newClientName.value = ''
     newClientRate.value = ''
     newClientCurrency.value = 'INR'
+    newClientSlack.value = ''
     resetLogoForm()
     addClientForm.classList.add('hidden')
     saveClientBtn.disabled = false
@@ -397,6 +405,7 @@ export function renderClients(container, ctx) {
         newClientName.value = btn.dataset.name
         newClientRate.value = client?.defaultHourlyRate || ''
         newClientCurrency.value = client?.currency || 'INR'
+        newClientSlack.value = client?.slackChannelId || ''
         resetLogoForm()
         existingLogoUrl = btn.dataset.logo || ''
         if (existingLogoUrl) {

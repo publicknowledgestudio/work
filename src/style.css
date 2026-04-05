@@ -3011,7 +3011,7 @@ body {
   margin-bottom: 4px;
 }
 .ctx-cal-we {
-  color: var(--primary);
+  color: var(--text-tertiary);
 }
 .ctx-cal-grid {
   display: grid;
@@ -3051,7 +3051,33 @@ body {
   color: var(--text-tertiary);
 }
 .ctx-cal-day.weekend {
+  color: var(--text);
+}
+
+/* ===== Context Menu — Multi-select header ===== */
+.ctx-multi-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  font-size: 11px;
+  font-weight: 600;
   color: var(--primary);
+  letter-spacing: 0.02em;
+}
+
+/* ===== Marquee Selection ===== */
+.marquee-rect {
+  position: fixed;
+  border: 1.5px solid var(--primary);
+  background: rgba(99, 102, 241, 0.08);
+  border-radius: 3px;
+  pointer-events: none;
+  z-index: 9999;
+}
+.my-day-card.selected {
+  box-shadow: inset 0 0 0 2px var(--primary);
+  background: rgba(99, 102, 241, 0.06);
 }
 
 /* ===== My Day — Floating Add Bar ===== */

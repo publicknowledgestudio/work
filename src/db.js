@@ -53,6 +53,7 @@ export async function createClient(db, data) {
     logoUrl: data.logoUrl || '',
     defaultHourlyRate: data.defaultHourlyRate || 0,
     currency: data.currency || 'INR',
+    slackChannelId: data.slackChannelId || '',
     createdAt: serverTimestamp(),
   })
 }

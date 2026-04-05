@@ -2,11 +2,26 @@ import { STATUSES, PRIORITIES, TEAM } from './config.js'
 import { createTask, updateTask, deleteTask, loadDailyFocus, saveDailyFocus } from './db.js'
 
 let menuEl = null
-let activeTaskId = null
+let activeTaskIds = [] // supports single or multi-select
 let openSubmenu = null
 
 // The task card selectors used across views
 const TASK_SELECTORS = '.task-card, .my-task-row, .my-day-card, .scrum-card'
+
+// Multi-select state (shared with my-day.js via getter/setter)
+let selectedIds = new Set()
+let onSelectionCleared = null
+
+export function getSelectedTaskIds() { return selectedIds }
+export function setSelectedTaskIds(ids, onClear) {
+  selectedIds = ids instanceof Set ? ids : new Set(ids)
+  onSelectionCleared = onClear || null
+}
+export function clearSelection() {
+  selectedIds.clear()
+  document.querySelectorAll('.my-day-card.selected').forEach((c) => c.classList.remove('selected'))
+  if (onSelectionCleared) onSelectionCleared()
+}
 
 export function initContextMenu(getCtx) {
   // Create the menu element once
@@ -20,7 +35,16 @@ export function initContextMenu(getCtx) {
     if (!card || !card.dataset.id) return
 
     e.preventDefault()
-    activeTaskId = card.dataset.id
+    const clickedId = card.dataset.id
+
+    // If right-clicking on a selected card, use the full selection
+    if (selectedIds.size > 0 && selectedIds.has(clickedId)) {
+      activeTaskIds = [...selectedIds]
+    } else {
+      // Single task right-click — clear any multi-selection
+      clearSelection()
+      activeTaskIds = [clickedId]
+    }
     showMenu(e.clientX, e.clientY, getCtx())
   })
 
@@ -31,14 +55,20 @@ export function initContextMenu(getCtx) {
     }
   })
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') closeMenu()
+    if (e.key === 'Escape') {
+      closeMenu()
+      clearSelection()
+    }
   })
   document.addEventListener('scroll', () => closeMenu(), true)
 }
 
 function showMenu(x, y, ctx) {
-  const task = ctx.allTasks.find((t) => t.id === activeTaskId)
-  if (!task) return
+  const tasks = activeTaskIds.map((id) => ctx.allTasks.find((t) => t.id === id)).filter(Boolean)
+  if (tasks.length === 0) return
+
+  const isMulti = tasks.length > 1
+  const task = tasks[0] // first task (used for single-select active states)
 
   openSubmenu = null
 
@@ -60,12 +90,15 @@ function showMenu(x, y, ctx) {
   const week1 = calDays.slice(0, 7)
   const week2 = calDays.slice(7, 14)
 
+  const scheduleLabel = isMulti ? `Schedule ${tasks.length} Tasks` : 'Schedule Task'
+
   menuEl.innerHTML = `
+    ${isMulti ? `<div class="ctx-multi-header"><i class="ph ph-selection-all"></i> ${tasks.length} tasks selected</div><div class="ctx-separator"></div>` : ''}
     <div class="ctx-item has-sub" data-sub="schedule">
-      <i class="ph ph-calendar-plus"></i> Schedule Task
+      <i class="ph ph-calendar-plus"></i> ${scheduleLabel}
       <i class="ph ph-caret-right ctx-arrow"></i>
       <div class="ctx-submenu ctx-schedule-sub" data-sub-id="schedule">
-        <div class="ctx-cal-header">Schedule Task</div>
+        <div class="ctx-cal-header">${scheduleLabel}</div>
         <div class="ctx-cal-days">
           <span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span class="ctx-cal-we">S</span><span class="ctx-cal-we">S</span>
         </div>
@@ -78,18 +111,20 @@ function showMenu(x, y, ctx) {
       </div>
     </div>
     <div class="ctx-separator"></div>
+    ${!isMulti ? `
     <div class="ctx-item" data-action="duplicate">
       <i class="ph ph-copy"></i> Duplicate
     </div>
     <div class="ctx-separator"></div>
+    ` : ''}
     <div class="ctx-item has-sub" data-sub="status">
       <i class="ph ph-circle-half"></i> Status
       <i class="ph ph-caret-right ctx-arrow"></i>
       <div class="ctx-submenu" data-sub-id="status">
         ${STATUSES.map((s) => `
-          <div class="ctx-item${task.status === s.id ? ' active' : ''}" data-action="status" data-value="${s.id}">
+          <div class="ctx-item${!isMulti && task.status === s.id ? ' active' : ''}" data-action="status" data-value="${s.id}">
             <span class="ctx-dot" style="background:${s.color}"></span> ${s.label}
-            ${task.status === s.id ? '<i class="ph ph-check ctx-check"></i>' : ''}
+            ${!isMulti && task.status === s.id ? '<i class="ph ph-check ctx-check"></i>' : ''}
           </div>
         `).join('')}
       </div>
@@ -99,7 +134,7 @@ function showMenu(x, y, ctx) {
       <i class="ph ph-caret-right ctx-arrow"></i>
       <div class="ctx-submenu" data-sub-id="assign">
         ${TEAM.map((m) => {
-          const isAssigned = (task.assignees || []).includes(m.email)
+          const isAssigned = !isMulti && (task.assignees || []).includes(m.email)
           const avatarHtml = m.photoURL
             ? `<img class="avatar-photo-xs" src="${m.photoURL}" alt="${m.name}">`
             : `<span class="ctx-dot" style="background:${m.color}"></span>`
@@ -111,7 +146,7 @@ function showMenu(x, y, ctx) {
           `
         }).join('')}
         <div class="ctx-separator"></div>
-        <div class="ctx-item${(!task.assignees || task.assignees.length === 0) ? ' active' : ''}" data-action="unassign">
+        <div class="ctx-item${!isMulti && (!task.assignees || task.assignees.length === 0) ? ' active' : ''}" data-action="unassign">
           <i class="ph ph-user-minus" style="font-size:13px"></i> Unassign All
         </div>
       </div>
@@ -121,16 +156,16 @@ function showMenu(x, y, ctx) {
       <i class="ph ph-caret-right ctx-arrow"></i>
       <div class="ctx-submenu" data-sub-id="priority">
         ${PRIORITIES.map((p) => `
-          <div class="ctx-item${task.priority === p.id ? ' active' : ''}" data-action="priority" data-value="${p.id}">
+          <div class="ctx-item${!isMulti && task.priority === p.id ? ' active' : ''}" data-action="priority" data-value="${p.id}">
             <span class="ctx-dot" style="background:${p.color}"></span> ${p.label}
-            ${task.priority === p.id ? '<i class="ph ph-check ctx-check"></i>' : ''}
+            ${!isMulti && task.priority === p.id ? '<i class="ph ph-check ctx-check"></i>' : ''}
           </div>
         `).join('')}
       </div>
     </div>
     <div class="ctx-separator"></div>
     <div class="ctx-item danger" data-action="delete">
-      <i class="ph ph-trash"></i> Delete
+      <i class="ph ph-trash"></i> Delete${isMulti ? ` ${tasks.length} Tasks` : ''}
     </div>
   `
 
@@ -151,10 +186,13 @@ function showMenu(x, y, ctx) {
   menuEl.style.top = `${top}px`
 
   // Bind actions
-  bindMenuActions(ctx, task)
+  bindMenuActions(ctx, tasks)
 }
 
-function bindMenuActions(ctx, task) {
+function bindMenuActions(ctx, tasks) {
+  const isMulti = tasks.length > 1
+  const task = tasks[0]
+
   // Submenu hover
   menuEl.querySelectorAll('.ctx-item.has-sub').forEach((item) => {
     item.addEventListener('mouseenter', () => {
@@ -181,7 +219,7 @@ function bindMenuActions(ctx, task) {
     }
   })
 
-  // Schedule to a specific day
+  // Schedule to a specific day (batch)
   menuEl.querySelectorAll('[data-action="schedule"]').forEach((btn) => {
     btn.addEventListener('click', async () => {
       closeMenu()
@@ -189,17 +227,25 @@ function bindMenuActions(ctx, task) {
       if (!email) return
       const dateStr = btn.dataset.date
       const focus = await loadDailyFocus(ctx.db, email, dateStr)
-      if (!focus.taskIds.includes(task.id)) {
-        focus.taskIds.push(task.id)
+      let changed = false
+      for (const t of tasks) {
+        if (!focus.taskIds.includes(t.id)) {
+          focus.taskIds.push(t.id)
+          changed = true
+        }
+      }
+      if (changed) {
         await saveDailyFocus(ctx.db, email, dateStr, focus.taskIds, focus.timeBlocks)
       }
-      ctx.onSave?.()
+      clearSelection()
+      await ctx.onSave?.()
     })
   })
 
-  // Duplicate
+  // Duplicate (single only)
   menuEl.querySelector('[data-action="duplicate"]')?.addEventListener('click', async () => {
     closeMenu()
+    clearSelection()
     await createTask(ctx.db, {
       title: task.title + ' (copy)',
       description: task.description || '',
@@ -213,49 +259,65 @@ function bindMenuActions(ctx, task) {
     })
   })
 
-  // Status changes
+  // Status changes (batch)
   menuEl.querySelectorAll('[data-action="status"]').forEach((item) => {
     item.addEventListener('click', async () => {
       closeMenu()
-      await updateTask(ctx.db, task.id, { status: item.dataset.value })
+      clearSelection()
+      const value = item.dataset.value
+      await Promise.all(tasks.map((t) => updateTask(ctx.db, t.id, { status: value })))
     })
   })
 
-  // Assign to (toggle)
+  // Assign to (batch — always adds for multi, toggles for single)
   menuEl.querySelectorAll('[data-action="assign"]').forEach((item) => {
     item.addEventListener('click', async () => {
       closeMenu()
+      clearSelection()
       const email = item.dataset.value
-      const current = task.assignees || []
-      let newAssignees
-      if (current.includes(email)) {
-        newAssignees = current.filter((e) => e !== email)
+      if (isMulti) {
+        // For multi-select, always add the person
+        await Promise.all(tasks.map((t) => {
+          const current = t.assignees || []
+          if (!current.includes(email)) {
+            return updateTask(ctx.db, t.id, { assignees: [...current, email] })
+          }
+          return Promise.resolve()
+        }))
       } else {
-        newAssignees = [...current, email]
+        const current = task.assignees || []
+        const newAssignees = current.includes(email)
+          ? current.filter((e) => e !== email)
+          : [...current, email]
+        await updateTask(ctx.db, task.id, { assignees: newAssignees })
       }
-      await updateTask(ctx.db, task.id, { assignees: newAssignees })
     })
   })
 
-  // Unassign all
+  // Unassign all (batch)
   menuEl.querySelector('[data-action="unassign"]')?.addEventListener('click', async () => {
     closeMenu()
-    await updateTask(ctx.db, task.id, { assignees: [] })
+    clearSelection()
+    await Promise.all(tasks.map((t) => updateTask(ctx.db, t.id, { assignees: [] })))
   })
 
-  // Priority changes
+  // Priority changes (batch)
   menuEl.querySelectorAll('[data-action="priority"]').forEach((item) => {
     item.addEventListener('click', async () => {
       closeMenu()
-      await updateTask(ctx.db, task.id, { priority: item.dataset.value })
+      clearSelection()
+      const value = item.dataset.value
+      await Promise.all(tasks.map((t) => updateTask(ctx.db, t.id, { priority: value })))
     })
   })
 
-  // Delete
+  // Delete (batch)
   menuEl.querySelector('[data-action="delete"]')?.addEventListener('click', async () => {
     closeMenu()
-    if (confirm('Delete this task?')) {
-      await deleteTask(ctx.db, task.id)
+    const msg = isMulti ? `Delete ${tasks.length} tasks?` : 'Delete this task?'
+    if (confirm(msg)) {
+      clearSelection()
+      await Promise.all(tasks.map((t) => deleteTask(ctx.db, t.id)))
     }
   })
 }
@@ -289,7 +351,7 @@ function closeMenu() {
     menuEl.classList.add('hidden')
     menuEl.querySelectorAll('.ctx-submenu.open').forEach((s) => s.classList.remove('open'))
   }
-  activeTaskId = null
+  activeTaskIds = []
   openSubmenu = null
 }
 

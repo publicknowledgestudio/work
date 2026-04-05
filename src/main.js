@@ -730,7 +730,7 @@ if (currentView !== 'references') cleanupReferences()
       renderBoardContainer(mainContent, tasks, ctx)
       break
     case 'my-day':
-      renderMyDay(mainContent, tasks, currentUser, ctx)
+      return renderMyDay(mainContent, tasks, currentUser, ctx)
       break
     case 'my-tasks':
       renderMyTasks(mainContent, tasks, currentUser, ctx)

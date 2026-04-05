@@ -30,7 +30,7 @@ const TEAM_MEMBERS = [
 ]
 
 const CLAUDE_API_KEY = defineSecret('CLAUDE_API_KEY')
-const SLACK_WEBHOOK_URL = defineSecret('SLACK_WEBHOOK_URL')
+const SLACK_BOT_TOKEN = defineSecret('SLACK_BOT_TOKEN')
 const OPENCLAW_WEBHOOK_URL = defineSecret('OPENCLAW_WEBHOOK_URL')
 const OPENCLAW_WEBHOOK_SECRET = defineSecret('OPENCLAW_WEBHOOK_SECRET')
 
@@ -359,7 +359,7 @@ function notifyOpenClaw(taskId, task, action) {
 // === Firestore Trigger — Notify OpenClaw on key task events ===
 
 exports.onTaskWritten = onDocumentWritten(
-  { document: 'tasks/{taskId}', secrets: [OPENCLAW_WEBHOOK_URL, OPENCLAW_WEBHOOK_SECRET] },
+  { document: 'tasks/{taskId}', secrets: [OPENCLAW_WEBHOOK_URL, OPENCLAW_WEBHOOK_SECRET, SLACK_BOT_TOKEN] },
   async (event) => {
     const after = event.data?.after
     if (!after?.exists) return // task deleted — ignore
@@ -377,14 +377,46 @@ exports.onTaskWritten = onDocumentWritten(
       notifyOpenClaw(event.params.taskId, { ...task, projectName }, action)
     }
 
-    // Notify when a task is marked as done
+    // Notify when a task is marked as done — post to client Slack channel
     const justCompleted = task.status === 'done' && before?.status && before.status !== 'done'
     if (justCompleted) {
       const projectName = await lookupProjectName(task.projectId)
       notifyOpenClaw(event.params.taskId, { ...task, projectName, event: 'task_completed' }, 'completed')
+
+      // Post to client's Slack channel via Asty bot token
+      if (task.clientId) {
+        const clientDoc = await db.collection('clients').doc(task.clientId).get()
+        const client = clientDoc.exists ? clientDoc.data() : null
+        if (client?.slackChannelId) {
+          const completedBy = lookupTeamName(task.updatedBy || afterAssignees[0] || '')
+          const projectLine = projectName || client.name || ''
+          const message = `✅ ${task.title}\n${projectLine} · Marked done by ${completedBy}`
+          postToSlackChannel(client.slackChannelId, message)
+        }
+      }
     }
   }
 )
+
+function lookupTeamName(email) {
+  if (!email) return 'someone'
+  const member = TEAM_MEMBERS.find((m) => m.email === email)
+  return member ? member.name : email.split('@')[0]
+}
+
+function postToSlackChannel(channelId, text) {
+  const token = process.env.SLACK_BOT_TOKEN
+  if (!token) return
+
+  fetch('https://slack.com/api/chat.postMessage', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`,
+    },
+    body: JSON.stringify({ channel: channelId, text }),
+  }).catch((err) => console.error('Slack postMessage error:', err))
+}
 
 // === Scrum Summary ===
 // Returns: items closed yesterday + currently open items per team member
@@ -580,181 +612,7 @@ async function addNote(req, res) {
 // secrets which are no longer provisioned, blocking all function deployments.
 // exports.slack = require('./slack').slack
 
-// =============================================================
-// Slack Workflow Webhook Endpoint
-// =============================================================
-// Accepts POST requests from Slack Workflow Builder and posts
-// formatted responses back to Slack via incoming webhook.
-//
-// Actions:
-//   { "action": "scrum" }                    — Post daily scrum summary
-//   { "action": "standup", "userEmail", "userName", "yesterday", "today", "blockers" }
-//   { "action": "create_task", "title", "assignee", "status", "priority", "clientId", "projectId" }
-
-exports.slackWebhook = onRequest(
-  { secrets: [CLAUDE_API_KEY, SLACK_WEBHOOK_URL] },
-  async (req, res) => {
-    cors(res)
-    if (req.method === 'OPTIONS') return res.status(204).send('')
-
-    // Authenticate with same API key
-    if (!authenticate(req, res)) return
-
-    const { action } = req.body
-    if (!action) return res.status(400).json({ error: 'action is required' })
-
-    try {
-      let slackMessage
-
-      if (action === 'scrum') {
-        slackMessage = await buildScrumMessage()
-      } else if (action === 'standup') {
-        slackMessage = await handleStandupWebhook(req.body)
-      } else if (action === 'create_task') {
-        slackMessage = await handleCreateTaskWebhook(req.body)
-      } else {
-        return res.status(400).json({ error: `Unknown action: ${action}` })
-      }
-
-      // Post to Slack
-      const webhookUrl = process.env.SLACK_WEBHOOK_URL
-      if (webhookUrl) {
-        await postToSlack(webhookUrl, slackMessage)
-      }
-
-      res.json({ ok: true, message: slackMessage })
-    } catch (err) {
-      console.error('Slack webhook error:', err)
-      res.status(500).json({ error: 'Internal server error' })
-    }
-  }
-)
-
-async function postToSlack(webhookUrl, text) {
-  const resp = await fetch(webhookUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text }),
-  })
-  if (!resp.ok) {
-    console.error('Slack webhook failed:', resp.status, await resp.text())
-  }
-}
-
-async function buildScrumMessage() {
-  const now = new Date()
-  const yesterday = new Date(now)
-  yesterday.setDate(yesterday.getDate() - 1)
-  yesterday.setHours(0, 0, 0, 0)
-  const today = new Date(now)
-  today.setHours(0, 0, 0, 0)
-
-  const closedSnap = await db
-    .collection('tasks')
-    .where('closedAt', '>=', admin.firestore.Timestamp.fromDate(yesterday))
-    .where('closedAt', '<', admin.firestore.Timestamp.fromDate(today))
-    .get()
-  const closedYesterday = closedSnap.docs.map((d) => ({ id: d.id, ...d.data() }))
-
-  const openSnap = await db
-    .collection('tasks')
-    .where('status', 'in', ['todo', 'in_progress', 'review'])
-    .get()
-  const openTasks = openSnap.docs.map((d) => ({ id: d.id, ...d.data() }))
-
-  const team = ['gyan', 'charu', 'sharang', 'anandu']
-  const dateStr = now.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' })
-
-  let msg = `📋 *Daily Scrum — ${dateStr}*\n\n`
-
-  // Closed yesterday
-  msg += `*✅ Closed Yesterday:*\n`
-  let anyClosed = false
-  for (const name of team) {
-    const email = `${name}@publicknowledge.co`
-    const closed = closedYesterday.filter((t) => getAssignees(t).includes(email))
-    const displayName = name.charAt(0).toUpperCase() + name.slice(1)
-    if (closed.length > 0) {
-      msg += `  ${displayName}: ${closed.map((t) => t.title).join(', ')}\n`
-      anyClosed = true
-    } else {
-      msg += `  ${displayName}: —\n`
-    }
-  }
-  if (!anyClosed) msg += `  _No tasks closed yesterday_\n`
-
-  msg += `\n*📌 Currently Open:*\n`
-  for (const name of team) {
-    const email = `${name}@publicknowledge.co`
-    const open = openTasks.filter((t) => getAssignees(t).includes(email))
-    const displayName = name.charAt(0).toUpperCase() + name.slice(1)
-    if (open.length > 0) {
-      msg += `  *${displayName}* (${open.length} task${open.length > 1 ? 's' : ''}):\n`
-      for (const t of open) {
-        const statusLabel = t.status === 'in_progress' ? 'In Progress' : t.status === 'todo' ? 'To Do' : 'Review'
-        msg += `    • [${statusLabel}] ${t.title}\n`
-      }
-    } else {
-      msg += `  *${displayName}*: _No open tasks_\n`
-    }
-  }
-
-  const unassigned = openTasks.filter((t) => getAssignees(t).length === 0)
-  if (unassigned.length > 0) {
-    msg += `  *Unassigned* (${unassigned.length}):\n`
-    for (const t of unassigned) {
-      msg += `    • [${t.status}] ${t.title}\n`
-    }
-  }
-
-  return msg
-}
-
-async function handleStandupWebhook(data) {
-  const standup = {
-    userEmail: data.userEmail,
-    userName: data.userName || '',
-    yesterday: data.yesterday || '',
-    today: data.today || '',
-    blockers: data.blockers || '',
-    date: admin.firestore.FieldValue.serverTimestamp(),
-  }
-
-  await db.collection('standups').add(standup)
-
-  let msg = `🧍 *Standup from ${standup.userName || standup.userEmail}*\n`
-  msg += `*Yesterday:* ${standup.yesterday || '_nothing_'}\n`
-  msg += `*Today:* ${standup.today || '_nothing_'}\n`
-  if (standup.blockers) msg += `*🚧 Blockers:* ${standup.blockers}\n`
-
-  return msg
-}
-
-async function handleCreateTaskWebhook(data) {
-  if (!data.title) return '❌ Task title is required'
-
-  const assignees = data.assignees || (data.assignee ? [data.assignee] : [])
-
-  const task = {
-    title: data.title,
-    description: data.description || '',
-    clientId: data.clientId || '',
-    projectId: data.projectId || '',
-    assignees,
-    status: data.status || 'todo',
-    priority: data.priority || 'medium',
-    deadline: data.deadline ? admin.firestore.Timestamp.fromDate(new Date(data.deadline)) : null,
-    notes: [],
-    createdAt: admin.firestore.FieldValue.serverTimestamp(),
-    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    closedAt: null,
-    createdBy: data.createdBy || 'slack-workflow',
-  }
-
-  const ref = await db.collection('tasks').add(task)
-  const assigneeStr = assignees.length > 0 ? ` → ${assignees.join(', ')}` : ''
-  return `✅ Task created: *${task.title}*${assigneeStr} (${task.status}, ${task.priority} priority)`
-}
+// Old slackWebhook (Scrumpy) removed — replaced by Asty bot token posting in onTaskWritten
 
 // === Reference Handlers ===
 

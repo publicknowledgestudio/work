@@ -4,6 +4,7 @@ import { openModal } from './modal.js'
 import { attachMention } from './mention.js'
 import { loadCalendarEvents } from './calendar.js'
 import { renderTimeGrid, bindTimeGridActions, isTimeGridDragging } from './time-grid.js'
+import { setSelectedTaskIds, clearSelection } from './context-menu.js'
 
 let focusTaskIds = []
 let timeBlocks = []
@@ -61,13 +62,27 @@ export async function renderMyDay(container, tasks, currentUser, ctx) {
     }
   }
 
-  // Load daily focus for all weekdays in parallel
-  const weekFocusResults = await Promise.all(
-    weekDates.map((wd) => wd.isToday
+  // Compute next week dates (for excluding scheduled-next-week tasks from Unscheduled)
+  const nextMonday = new Date(monday)
+  nextMonday.setDate(monday.getDate() + 7)
+  const nextWeekDates = []
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(nextMonday)
+    d.setDate(nextMonday.getDate() + i)
+    nextWeekDates.push(d.toISOString().split('T')[0])
+  }
+
+  // Load daily focus for all weekdays + next week in parallel
+  const allFocusPromises = [
+    ...weekDates.map((wd) => wd.isToday
       ? Promise.resolve(focusData)
       : loadDailyFocus(ctx.db, targetEmail, wd.dateStr)
-    )
-  )
+    ),
+    ...nextWeekDates.map((ds) => loadDailyFocus(ctx.db, targetEmail, ds)),
+  ]
+  const allFocusResults = await Promise.all(allFocusPromises)
+  const weekFocusResults = allFocusResults.slice(0, 7)
+  const nextWeekFocusResults = allFocusResults.slice(7)
 
   // Build weekData
   weekData = {}
@@ -104,18 +119,41 @@ export async function renderMyDay(container, tasks, currentUser, ctx) {
     .map((id) => tasks.find((t) => t.id === id))
     .filter(Boolean)
 
-  // Build set of all tasks assigned to a weekday
+  // Build set of all tasks assigned to a weekday (current + next week)
   const weekTaskIdSet = new Set()
   for (const wd of Object.values(weekData)) {
     for (const id of wd.taskIds) weekTaskIdSet.add(id)
   }
+  // Also exclude tasks scheduled for next week from Unscheduled
+  for (const focus of nextWeekFocusResults) {
+    for (const id of focus.taskIds) weekTaskIdSet.add(id)
+  }
 
-  // Resolve week day tasks
+  // Build map of done tasks by closedAt date for this user
+  const doneByDate = new Map() // dateStr → task[]
+  for (const t of tasks) {
+    if (t.status !== 'done' || !t.closedAt) continue
+    if (!(t.assignees || []).includes(targetEmail)) continue
+    const closed = toDate(t.closedAt)
+    if (!closed) continue
+    const closedStr = closed.toISOString().split('T')[0]
+    if (!doneByDate.has(closedStr)) doneByDate.set(closedStr, [])
+    doneByDate.get(closedStr).push(t)
+  }
+
+  // Resolve week day tasks — merge scheduled + done-on-that-day
   const weekDayTasks = {} // dateStr → task[]
   for (const [dateStr, wd] of Object.entries(weekData)) {
-    weekDayTasks[dateStr] = wd.taskIds
+    const scheduled = wd.taskIds
       .map((id) => tasks.find((t) => t.id === id))
       .filter(Boolean)
+    // Add tasks completed on this day that aren't already in the list
+    const scheduledIds = new Set(wd.taskIds)
+    const doneThisDay = (doneByDate.get(dateStr) || [])
+      .filter((t) => !scheduledIds.has(t.id))
+    weekDayTasks[dateStr] = [...scheduled, ...doneThisDay]
+    // Also add to weekTaskIdSet so they don't appear in Unscheduled
+    for (const t of doneThisDay) weekTaskIdSet.add(t.id)
   }
 
   // Up Next (Unscheduled): active tasks not assigned to any weekday
@@ -128,7 +166,7 @@ export async function renderMyDay(container, tasks, currentUser, ctx) {
     )
     .sort((a, b) => priorityWeight(b.priority) - priorityWeight(a.priority))
 
-  // Completed today for viewed user
+  // Completed today for viewed user (still used for stats)
   const completedToday = tasks.filter((t) => {
     if (t.status !== 'done' || !t.closedAt) return false
     if (!(t.assignees || []).includes(targetEmail)) return false
@@ -171,7 +209,7 @@ export async function renderMyDay(container, tasks, currentUser, ctx) {
 
   // Build client filter data — count only tasks visible in sections
   const allWeekTasks = Object.values(weekDayTasks).flat()
-  const visibleTasks = [...upNext, ...allWeekTasks, ...completedToday]
+  const visibleTasks = [...upNext, ...allWeekTasks]
   const clientCounts = new Map() // clientId → count
   for (const t of visibleTasks) {
     const cid = t.clientId || ''
@@ -191,7 +229,6 @@ export async function renderMyDay(container, tasks, currentUser, ctx) {
   // Filter task lists by selected client
   const clientFilter = (t) => !selectedClientId || t.clientId === selectedClientId
   const filteredUpNext = upNext.filter(clientFilter)
-  const filteredCompletedToday = completedToday.filter(clientFilter)
   const filteredWeekDayTasks = {}
   for (const [dateStr, dayTasks] of Object.entries(weekDayTasks)) {
     filteredWeekDayTasks[dateStr] = dayTasks.filter(clientFilter)
@@ -292,20 +329,6 @@ export async function renderMyDay(container, tasks, currentUser, ctx) {
           `
         }).join('')}
 
-        <!-- Completed Today -->
-        ${filteredCompletedToday.length > 0 ? `
-          <div class="my-day-section">
-            <div class="my-day-section-header">
-              <i class="ph-fill ph-check-circle" style="color:#22c55e"></i>
-              <span>Completed Today</span>
-              <span class="my-day-count">${filteredCompletedToday.length}</span>
-            </div>
-            <div class="my-day-completed-list">
-              ${filteredCompletedToday.map((t) => completedCard(t, ctx, now)).join('')}
-            </div>
-          </div>
-        ` : ''}
-
         <div class="myday-add-spacer"></div>
       </div>
 
@@ -401,30 +424,6 @@ function weekdayCard(task, ctx, now, isOwnDay, dateStr, isPast) {
         </button>
       </div>
       ` : ''}
-    </div>
-  `
-}
-
-function completedCard(task, ctx, now) {
-  const project = ctx.projects.find((p) => p.id === task.projectId)
-  const client = ctx.clients.find((c) => c.id === task.clientId)
-  const clientLogo = client?.logoUrl
-    ? `<img class="client-logo-xs" src="${client.logoUrl}" alt="${esc(client.name)}">`
-    : ''
-  const closedDate = toDate(task.closedAt)
-  const timeAgo = closedDate ? relativeTime(closedDate, now) : ''
-
-  return `
-    <div class="my-day-card completed" data-id="${task.id}">
-      <div class="my-day-card-main">
-        <button class="status-btn" data-action="cycle-status" title="Done — click to reopen"><i class="ph-fill ph-check-circle status-icon done"></i></button>
-        ${clientLogo}
-        ${project ? `<span class="my-day-project">${esc(project.name)}</span>` : ''}
-        <span class="my-day-card-title">${esc(task.title)}</span>
-        <div class="my-day-card-meta">
-          ${timeAgo ? `<span class="my-day-time-ago">${timeAgo}</span>` : ''}
-        </div>
-      </div>
     </div>
   `
 }
@@ -716,6 +715,86 @@ function bindMyDayActions(container, tasks, currentUser, ctx, now, isOwnDay) {
       if (changed) renderMyDay(container, tasks, currentUser, ctx)
     })
   })
+
+  // ── Marquee (lasso) selection ──
+  let marqueeEl = null
+  let startX = 0, startY = 0
+  let isDragging = false
+
+  const onMarqueeDown = (e) => {
+    // Only start marquee on background — not on cards, buttons, inputs, scrollbars, menus
+    if (e.button !== 0) return
+    if (e.target.closest('.my-day-card, .task-card, button, input, a, .ctx-menu, .my-week-client-tabs, .my-day-header, .tg-slot, .tg-block')) return
+
+    // Clear previous selection
+    clearSelection()
+
+    startX = e.clientX
+    startY = e.clientY
+    isDragging = false
+
+    const onMove = (me) => {
+      const dx = me.clientX - startX
+      const dy = me.clientY - startY
+      // Only start drawing after a small threshold to avoid accidental drags
+      if (!isDragging && (Math.abs(dx) < 5 && Math.abs(dy) < 5)) return
+
+      if (!isDragging) {
+        isDragging = true
+        marqueeEl = document.createElement('div')
+        marqueeEl.className = 'marquee-rect'
+        document.body.appendChild(marqueeEl)
+      }
+
+      const x = Math.min(startX, me.clientX)
+      const y = Math.min(startY, me.clientY)
+      const w = Math.abs(dx)
+      const h = Math.abs(dy)
+      marqueeEl.style.left = `${x}px`
+      marqueeEl.style.top = `${y}px`
+      marqueeEl.style.width = `${w}px`
+      marqueeEl.style.height = `${h}px`
+
+      // Check which cards intersect with the marquee rectangle
+      const marqueeRect = { left: x, top: y, right: x + w, bottom: y + h }
+      const selected = new Set()
+      container.querySelectorAll('.my-day-card').forEach((card) => {
+        const cr = card.getBoundingClientRect()
+        const intersects =
+          cr.left < marqueeRect.right &&
+          cr.right > marqueeRect.left &&
+          cr.top < marqueeRect.bottom &&
+          cr.bottom > marqueeRect.top
+        if (intersects) {
+          card.classList.add('selected')
+          selected.add(card.dataset.id)
+        } else {
+          card.classList.remove('selected')
+        }
+      })
+      setSelectedTaskIds(selected, () => {
+        container.querySelectorAll('.my-day-card.selected').forEach((c) => c.classList.remove('selected'))
+      })
+    }
+
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove)
+      document.removeEventListener('mouseup', onUp)
+      if (marqueeEl) {
+        marqueeEl.remove()
+        marqueeEl = null
+      }
+      // If we didn't actually drag (just a click), clear selection
+      if (!isDragging) {
+        clearSelection()
+      }
+    }
+
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', onUp)
+  }
+
+  container.addEventListener('mousedown', onMarqueeDown)
 
 }
 
