@@ -354,6 +354,44 @@ export function renderClientTimeline(container, tasks, ctx) {
     if (todayCol) {
       todayCol.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' })
     }
+
+    // Drag and drop — scheduling
+    container.querySelectorAll('.task-card').forEach((card) => {
+      card.addEventListener('dragstart', (e) => {
+        e.dataTransfer.setData('text/plain', card.dataset.id)
+        e.dataTransfer.effectAllowed = 'move'
+        card.classList.add('dragging')
+      })
+      card.addEventListener('dragend', () => {
+        card.classList.remove('dragging')
+        container.querySelectorAll('.column-tasks').forEach((col) => col.classList.remove('drag-over'))
+      })
+    })
+
+    container.querySelectorAll('.column-tasks').forEach((col) => {
+      col.addEventListener('dragover', (e) => {
+        e.preventDefault()
+        e.dataTransfer.dropEffect = 'move'
+        col.classList.add('drag-over')
+      })
+      col.addEventListener('dragleave', () => col.classList.remove('drag-over'))
+      col.addEventListener('drop', async (e) => {
+        e.preventDefault()
+        col.classList.remove('drag-over')
+        const taskId = e.dataTransfer.getData('text/plain')
+        if (!taskId) return
+
+        const colId = col.dataset.col
+        if (colId === 'unscheduled') {
+          await updateTask(ctx.db, taskId, { deadline: null })
+        } else {
+          const dateStr = col.dataset.date
+          if (dateStr) {
+            await updateTask(ctx.db, taskId, { deadline: dateStr })
+          }
+        }
+      })
+    })
   }
 
   render()
