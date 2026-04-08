@@ -5990,3 +5990,8 @@ body {
   flex-direction: column;
   flex-shrink: 0;
 }
+
+.timeline-board .column-tasks {
+  flex: 1;
+  min-height: 120px;
+}
