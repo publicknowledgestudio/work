@@ -22,6 +22,7 @@ import { initContextMenu } from './context-menu.js'
 import { setAccessToken, clearAccessToken } from './calendar.js'
 import { renderClientBoard } from './client-board.js'
 import { renderClientTimesheets } from './client-timesheets.js'
+import { renderClientTimeline } from './client-timeline.js'
 import { renderAttendance, cleanupAttendance } from './attendance.js'
 
 // Preload cached image URLs into browser HTTP cache
@@ -64,6 +65,7 @@ const ROUTES = {
   '/attendance':        { view: 'attendance' },
   '/client-board':      { view: 'client-board' },
   '/client-timesheets': { view: 'client-timesheets' },
+  '/client-timeline':   { view: 'client-timeline' },
 }
 
 const VIEW_TO_PATH = {
@@ -72,6 +74,7 @@ const VIEW_TO_PATH = {
   'references': '/references', 'clients': '/manage',
   'attendance': '/attendance',
   'client-board': '/client-board', 'client-timesheets': '/client-timesheets',
+  'client-timeline': '/client-timeline',
 }
 const BOARD_TO_PATH = {
   'status': '/board/backlog', 'assignee': '/board/team',
@@ -758,6 +761,9 @@ if (currentView !== 'references') cleanupReferences()
       break
     case 'client-timesheets':
       renderClientTimesheets(mainContent, allTasks, { ...ctx, userClientId, userClientName })
+      break
+    case 'client-timeline':
+      renderClientTimeline(mainContent, tasks, { ...ctx, userClientId, userClientName, userRole })
       break
   }
 }
