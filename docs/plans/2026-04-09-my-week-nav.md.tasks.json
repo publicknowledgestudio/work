@@ -1,0 +1,9 @@
+{
+  "planPath": "docs/plans/2026-04-09-my-week-nav.md",
+  "tasks": [
+    {"id": 1, "subject": "Task 1: Add weekOffset state and week navigation logic", "status": "pending"},
+    {"id": 2, "subject": "Task 2: CSS for week nav buttons", "status": "pending"},
+    {"id": 3, "subject": "Task 3: Build and deploy", "status": "pending", "blockedBy": [1, 2]}
+  ],
+  "lastUpdated": "2026-04-09T18:00:00Z"
+}
