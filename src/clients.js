@@ -97,6 +97,10 @@ export function renderClients(container, ctx) {
                 <select id="new-project-client" class="form-select">
                   <option value="">No client</option>
                 </select>
+                <div class="rate-field" style="width:100%">
+                  <label class="form-label-sm">Slack Channel ID (optional, overrides client channel)</label>
+                  <input type="text" id="new-project-slack" class="form-input" placeholder="e.g. C08UCQXH7D0">
+                </div>
                 <div class="inline-form-actions">
                   <button class="btn-primary" id="save-project-btn">Add</button>
                   <button class="btn-ghost" id="cancel-project-btn">Cancel</button>
@@ -270,10 +274,13 @@ export function renderClients(container, ctx) {
   const saveProjectBtn = document.getElementById('save-project-btn')
   const cancelProjectBtn = document.getElementById('cancel-project-btn')
 
+  const newProjectSlack = document.getElementById('new-project-slack')
+
   addProjectBtn.addEventListener('click', () => {
     editingProjectId = null
     newProjectName.value = ''
     newProjectClient.value = ''
+    newProjectSlack.value = ''
     addProjectForm.classList.remove('hidden')
     saveProjectBtn.textContent = 'Add'
     newProjectName.focus()
@@ -288,18 +295,20 @@ export function renderClients(container, ctx) {
     const name = newProjectName.value.trim()
     if (!name) return
     const clientId = newProjectClient.value
+    const slackChannelId = newProjectSlack.value.trim()
     if (editingProjectId) {
-      await updateProject(ctx.db, editingProjectId, { name, clientId })
+      await updateProject(ctx.db, editingProjectId, { name, clientId, slackChannelId })
       editingProjectId = null
     } else {
       // Inherit hourly rate and currency from client
       const client = localClients.find((c) => c.id === clientId)
       const hourlyRate = client?.defaultHourlyRate || 0
       const currency = client?.currency || 'INR'
-      await createProject(ctx.db, { name, clientId, hourlyRate, currency })
+      await createProject(ctx.db, { name, clientId, hourlyRate, currency, slackChannelId })
     }
     newProjectName.value = ''
     newProjectClient.value = ''
+    newProjectSlack.value = ''
     addProjectForm.classList.add('hidden')
   })
 
@@ -468,9 +477,11 @@ export function renderClients(container, ctx) {
     list.querySelectorAll('.project-edit').forEach((btn) => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation()
+        const project = localProjects.find((p) => p.id === btn.dataset.id)
         editingProjectId = btn.dataset.id
         newProjectName.value = btn.dataset.name
         newProjectClient.value = btn.dataset.client
+        newProjectSlack.value = project?.slackChannelId || ''
         addProjectForm.classList.remove('hidden')
         saveProjectBtn.textContent = 'Save'
         newProjectName.focus()
@@ -716,6 +727,9 @@ function renderProjectSettingsTab(container, project) {
   const currency = project.currency || client?.currency || 'INR'
   const inherited = project.hourlyRate == null || project.hourlyRate === undefined
 
+  const projectSlack = project.slackChannelId || ''
+  const clientSlack = client?.slackChannelId || ''
+
   container.innerHTML = `
     <div class="project-settings">
       <div class="settings-section">
@@ -734,15 +748,24 @@ function renderProjectSettingsTab(container, project) {
           </div>
         </div>
         ${inherited && client ? `<p class="settings-hint">Inherited from ${escHtml(client.name)} default rate</p>` : ''}
-        <button class="btn-primary" id="project-rate-save" style="margin-top:8px">Save</button>
       </div>
+      <div class="settings-section">
+        <h4 class="settings-section-title">Slack</h4>
+        <div class="rate-field" style="width:100%">
+          <label class="form-label-sm">Slack Channel ID (overrides client channel)</label>
+          <input type="text" id="project-slack-channel" class="form-input" value="${escHtml(projectSlack)}" placeholder="e.g. C08UCQXH7D0">
+        </div>
+        ${clientSlack && !projectSlack ? `<p class="settings-hint">Using client channel: ${escHtml(clientSlack)}</p>` : ''}
+      </div>
+      <button class="btn-primary" id="project-settings-save" style="margin-top:8px">Save</button>
     </div>
   `
 
-  document.getElementById('project-rate-save').addEventListener('click', async () => {
+  document.getElementById('project-settings-save').addEventListener('click', async () => {
     const newRate = parseFloat(document.getElementById('project-rate').value) || 0
     const newCurrency = document.getElementById('project-currency').value || 'INR'
-    await updateProject(currentCtx.db, project.id, { hourlyRate: newRate, currency: newCurrency })
+    const newSlack = document.getElementById('project-slack-channel').value.trim()
+    await updateProject(currentCtx.db, project.id, { hourlyRate: newRate, currency: newCurrency, slackChannelId: newSlack })
   })
 }
 

@@ -329,10 +329,15 @@ async function getProcess(req, res, processId) {
 
 const ASTY_EMAIL = 'asty@publicknowledge.co'
 
-async function lookupProjectName(projectId) {
-  if (!projectId) return ''
+async function lookupProject(projectId) {
+  if (!projectId) return null
   const doc = await db.collection('projects').doc(projectId).get()
-  return doc.exists ? (doc.data().name || '') : ''
+  return doc.exists ? doc.data() : null
+}
+
+async function lookupProjectName(projectId) {
+  const project = await lookupProject(projectId)
+  return project?.name || ''
 }
 
 function notifyOpenClaw(taskId, task, action) {
@@ -392,35 +397,39 @@ exports.onTaskWritten = onDocumentWritten(
     const createdBy = task.createdBy || ''
     const isExternalUser = isNewTask && createdBy && !createdBy.endsWith('@publicknowledge.co')
     if (isExternalUser && task.clientId) {
-      const [clientUserDoc, clientDoc, projectName] = await Promise.all([
+      const [clientUserDoc, clientDoc, project] = await Promise.all([
         db.collection('clientUsers').doc(createdBy).get(),
         db.collection('clients').doc(task.clientId).get(),
-        lookupProjectName(task.projectId),
+        lookupProject(task.projectId),
       ])
       const client = clientDoc.exists ? clientDoc.data() : null
-      if (client?.slackChannelId) {
+      const channelId = project?.slackChannelId || client?.slackChannelId
+      if (channelId) {
+        const projectName = project?.name || ''
         const userName = clientUserDoc.exists ? (clientUserDoc.data().name || createdBy.split('@')[0]) : createdBy.split('@')[0]
         const contextLine = [projectName, client.name].filter(Boolean).join(' · ')
         const message = `📋 New task created by external user "${userName}" — ${task.title}\n${contextLine}`
-        postToSlackChannel(client.slackChannelId, message)
+        postToSlackChannel(channelId, message)
       }
     }
 
     // Notify when a task is marked as done — post to client Slack channel
     const justCompleted = task.status === 'done' && before?.status && before.status !== 'done'
     if (justCompleted) {
-      const projectName = await lookupProjectName(task.projectId)
+      const project = await lookupProject(task.projectId)
+      const projectName = project?.name || ''
       notifyOpenClaw(event.params.taskId, { ...task, projectName, event: 'task_completed' }, 'completed')
 
-      // Post to client's Slack channel via Asty bot token
+      // Post to client's Slack channel via Asty bot token (project channel overrides client channel)
       if (task.clientId) {
         const clientDoc = await db.collection('clients').doc(task.clientId).get()
         const client = clientDoc.exists ? clientDoc.data() : null
-        if (client?.slackChannelId) {
+        const channelId = project?.slackChannelId || client?.slackChannelId
+        if (channelId) {
           const completedBy = lookupTeamName(task.updatedBy || afterAssignees[0] || '')
           const projectLine = projectName || client.name || ''
           const message = `✅ ${task.title}\n${projectLine} · Marked done by ${completedBy}`
-          postToSlackChannel(client.slackChannelId, message)
+          postToSlackChannel(channelId, message)
         }
       }
     }

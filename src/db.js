@@ -113,6 +113,7 @@ export async function createProject(db, data) {
     clientId: data.clientId || '',
     hourlyRate: data.hourlyRate || 0,
     currency: data.currency || 'INR',
+    slackChannelId: data.slackChannelId || '',
     createdAt: serverTimestamp(),
   })
 }
