@@ -59,6 +59,7 @@ import {
   loadStandups,
   loadDailyFocus,
   saveDailyFocus,
+  findDailyFocusContainingTask,
   loadAllDailyFocusForRange,
   addNote,
   uploadClientLogo,
@@ -343,6 +344,22 @@ describe('db.js', () => {
         }),
         { merge: true }
       )
+    })
+
+    it('should find daily focus docs containing task filtered by user', async () => {
+      vi.mocked(firestore.getDocs).mockResolvedValue({
+        docs: [
+          { id: 'user1@example.com_2026-02-01', data: () => ({ userEmail: 'user1@example.com', date: '2026-02-01', taskIds: ['t1', 't2'] }) },
+          { id: 'user2@example.com_2026-02-02', data: () => ({ userEmail: 'user2@example.com', date: '2026-02-02', taskIds: ['t1'] }) },
+          { id: 'user1@example.com_2026-02-03', data: () => ({ userEmail: 'user1@example.com', date: '2026-02-03', taskIds: ['t1', 't3'] }) },
+        ],
+      })
+
+      const results = await findDailyFocusContainingTask(mockDb, 'user1@example.com', 't1')
+
+      expect(results).toHaveLength(2)
+      expect(results.map((r) => r.date).sort()).toEqual(['2026-02-01', '2026-02-03'])
+      expect(firestore.where).toHaveBeenCalledWith('taskIds', 'array-contains', 't1')
     })
 
     it('should load all daily focus for date range', async () => {

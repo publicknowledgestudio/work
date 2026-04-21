@@ -1,5 +1,5 @@
 import { STATUSES, PRIORITIES, TEAM } from './config.js'
-import { createTask, updateTask, deleteTask, loadDailyFocus, saveDailyFocus } from './db.js'
+import { createTask, updateTask, deleteTask, loadDailyFocus, saveDailyFocus, findDailyFocusContainingTask } from './db.js'
 
 let menuEl = null
 let activeTaskIds = [] // supports single or multi-select
@@ -226,6 +226,28 @@ function bindMenuActions(ctx, tasks) {
       const email = ctx.currentUser?.email
       if (!email) return
       const dateStr = btn.dataset.date
+
+      // Remove each task from any previously scheduled day for this user
+      // (otherwise scheduling to a new day leaves a stale copy on the old one)
+      const cleanupByDate = new Map() // dateStr → { taskIds, timeBlocks }
+      for (const t of tasks) {
+        const existing = await findDailyFocusContainingTask(ctx.db, email, t.id)
+        for (const doc of existing) {
+          if (doc.date === dateStr) continue
+          const entry = cleanupByDate.get(doc.date) || {
+            taskIds: [...(doc.taskIds || [])],
+            timeBlocks: [...(doc.timeBlocks || [])],
+          }
+          entry.taskIds = entry.taskIds.filter((id) => id !== t.id)
+          entry.timeBlocks = entry.timeBlocks.filter((b) => b.taskId !== t.id)
+          cleanupByDate.set(doc.date, entry)
+        }
+      }
+      for (const [oldDate, entry] of cleanupByDate) {
+        await saveDailyFocus(ctx.db, email, oldDate, entry.taskIds, entry.timeBlocks)
+      }
+
+      // Add tasks to the target day's focus
       const focus = await loadDailyFocus(ctx.db, email, dateStr)
       let changed = false
       for (const t of tasks) {

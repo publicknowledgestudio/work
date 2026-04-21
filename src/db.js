@@ -343,6 +343,19 @@ export async function saveDailyFocus(db, userEmail, dateStr, taskIds, timeBlocks
   }
 }
 
+// Find all dailyFocus docs for a user that currently contain the given taskId.
+// Used when moving a task between scheduled days — to remove it from its previous day.
+export async function findDailyFocusContainingTask(db, userEmail, taskId) {
+  const q = query(
+    collection(db, 'dailyFocus'),
+    where('taskIds', 'array-contains', taskId)
+  )
+  const snap = await getDocs(q)
+  return snap.docs
+    .map((d) => ({ id: d.id, ...d.data() }))
+    .filter((d) => d.userEmail === userEmail)
+}
+
 // ===== Timesheet Queries =====
 
 export async function loadAllDailyFocusForRange(db, startDate, endDate) {
