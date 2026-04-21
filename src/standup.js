@@ -1,6 +1,7 @@
 import { TEAM, STATUSES } from './config.js'
 import { openModal } from './modal.js'
 import { updateTask } from './db.js'
+import { toDate, formatShortDate } from './utils/dates.js'
 
 // Session-only state: which tasks have been "discussed" this standup
 const discussedIds = new Set()
@@ -443,17 +444,6 @@ function relativeTime(date, now) {
 
 function formatDate(d) {
   return d.toLocaleDateString('en-IN', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
-}
-
-function formatShortDate(d) {
-  return d.toLocaleDateString('en-IN', { month: 'short', day: 'numeric' })
-}
-
-function toDate(ts) {
-  if (!ts) return null
-  if (ts.toDate) return ts.toDate()
-  if (ts.seconds) return new Date(ts.seconds * 1000)
-  return new Date(ts)
 }
 
 function esc(str) {

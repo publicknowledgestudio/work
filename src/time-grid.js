@@ -1,6 +1,8 @@
 // Time-block day calendar grid for My Day view
 // Renders a vertical timeline (9am–7pm, 15-min slots) with task blocks and calendar events
 
+import { toDate } from './utils/dates.js'
+
 const DAY_START = 9 // 9 AM
 const DAY_END = 22 // 10 PM
 const SLOT_MIN = 15 // minutes per slot
@@ -289,7 +291,7 @@ function renderTaskBlock(block, task, ctx, isOwnDay, pos) {
 
   // Deadline badge
   const deadlineStr = task.deadline ? formatBlockDeadline(task.deadline) : ''
-  const isOverdue = task.deadline && task.status !== 'done' && toDateHelper(task.deadline) < new Date()
+  const isOverdue = task.deadline && task.status !== 'done' && toDate(task.deadline) < new Date()
 
   const doneClass = task.status === 'done' ? ' done' : ''
 
@@ -345,7 +347,7 @@ function renderTaskBlock(block, task, ctx, isOwnDay, pos) {
 }
 
 function formatBlockDeadline(deadline) {
-  const d = toDateHelper(deadline)
+  const d = toDate(deadline)
   if (!d) return ''
   const now = new Date()
   const diff = Math.ceil((d - now) / (1000 * 60 * 60 * 24))
@@ -354,13 +356,6 @@ function formatBlockDeadline(deadline) {
   if (diff < 0) return `${Math.abs(diff)}d ago`
   if (diff <= 7) return `${diff}d`
   return d.toLocaleDateString('en-IN', { month: 'short', day: 'numeric' })
-}
-
-function toDateHelper(ts) {
-  if (!ts) return null
-  if (ts.toDate) return ts.toDate()
-  if (ts.seconds) return new Date(ts.seconds * 1000)
-  return new Date(ts)
 }
 
 function renderCalBlock(event, pos) {
@@ -779,7 +774,7 @@ function statusIconHtml(status) {
 
 function deadlineTagHtml(task, now) {
   if (!task.deadline) return ''
-  const d = toDateHelper(task.deadline)
+  const d = toDate(task.deadline)
   if (!d) return ''
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
   const diff = Math.ceil((d - today) / (1000 * 60 * 60 * 24))

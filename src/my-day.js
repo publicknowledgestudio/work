@@ -5,6 +5,7 @@ import { attachMention } from './mention.js'
 import { loadCalendarEvents } from './calendar.js'
 import { renderTimeGrid, bindTimeGridActions, isTimeGridDragging } from './time-grid.js'
 import { setSelectedTaskIds, clearSelection } from './context-menu.js'
+import { toDate, formatShortDate } from './utils/dates.js'
 
 let focusTaskIds = []
 let timeBlocks = []
@@ -940,17 +941,6 @@ function relativeTime(date, now) {
 
 function formatDate(d) {
   return d.toLocaleDateString('en-IN', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
-}
-
-function formatShortDate(d) {
-  return d.toLocaleDateString('en-IN', { month: 'short', day: 'numeric' })
-}
-
-function toDate(ts) {
-  if (!ts) return null
-  if (ts.toDate) return ts.toDate()
-  if (ts.seconds) return new Date(ts.seconds * 1000)
-  return new Date(ts)
 }
 
 function esc(str) {

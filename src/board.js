@@ -2,6 +2,7 @@ import { STATUSES, TEAM } from './config.js'
 import { createTask, updateTask } from './db.js'
 import { openModal } from './modal.js'
 import { attachMention } from './mention.js'
+import { toDate, formatDeadline } from './utils/dates.js'
 
 function sortUrgentFirst(tasks) {
   return [...tasks].sort((a, b) => (a.priority === 'urgent' ? 0 : 1) - (b.priority === 'urgent' ? 0 : 1))
@@ -585,28 +586,6 @@ function taskCard(task, ctx) {
       </div>
     </div>
   `
-}
-
-function formatDeadline(deadline) {
-  if (!deadline) return ''
-  const d = toDate(deadline)
-  const now = new Date()
-  const diff = Math.ceil((d - now) / (1000 * 60 * 60 * 24))
-
-  if (diff === 0) return 'Today'
-  if (diff === 1) return 'Tomorrow'
-  if (diff === -1) return 'Yesterday'
-  if (diff < -1) return `${Math.abs(diff)}d ago`
-  if (diff <= 7) return `${diff}d`
-
-  return d.toLocaleDateString('en-IN', { month: 'short', day: 'numeric' })
-}
-
-function toDate(ts) {
-  if (!ts) return null
-  if (ts.toDate) return ts.toDate()
-  if (ts.seconds) return new Date(ts.seconds * 1000)
-  return new Date(ts)
 }
 
 function statusIcon(status) {
