@@ -127,7 +127,7 @@ export function renderBoardByAssignee(container, tasks, ctx) {
           <span class="column-count">${colTasks.length}</span>
         </div>
         <div class="column-tasks" data-assignee="${col.email}">
-          ${sortUrgentFirst(colTasks).map((t) => taskCardByAssignee(t, ctx)).join('')}
+          ${sortUrgentFirst(colTasks).map((t) => taskCard(t, ctx, { groupedBy: 'assignee' })).join('')}
         </div>
         <div class="column-add-wrap" data-assignee="${col.email}">
           <input class="column-add-input" data-assignee="${col.email}" placeholder="+ Add task (@ to tag)" type="text">
@@ -247,7 +247,7 @@ export function renderBoardByClient(container, tasks, ctx) {
           <span class="column-count">${colTasks.length}</span>
         </div>
         <div class="column-tasks" data-client-id="${col.id}">
-          ${sortUrgentFirst(colTasks).map((t) => taskCardByClient(t, ctx)).join('')}
+          ${sortUrgentFirst(colTasks).map((t) => taskCard(t, ctx, { groupedBy: 'client' })).join('')}
         </div>
         <div class="column-add-wrap" data-client-id="${col.id}">
           <input class="column-add-input" data-client-id="${col.id}" placeholder="+ Add task (@ to tag)" type="text">
@@ -363,7 +363,7 @@ export function renderBoardByProject(container, tasks, ctx) {
           <span class="column-count">${colTasks.length}</span>
         </div>
         <div class="column-tasks" data-project-id="${col.id}">
-          ${sortUrgentFirst(colTasks).map((t) => taskCardByProject(t, ctx)).join('')}
+          ${sortUrgentFirst(colTasks).map((t) => taskCard(t, ctx, { groupedBy: 'project' })).join('')}
         </div>
         <div class="column-add-wrap" data-project-id="${col.id}">
           <input class="column-add-input" data-project-id="${col.id}" placeholder="+ Add task (@ to tag)" type="text">
@@ -449,16 +449,29 @@ export function renderBoardByProject(container, tasks, ctx) {
   })
 }
 
-function taskCardByProject(task, ctx) {
+// Render a task card. `groupedBy` tells us which column axis the caller
+// is using — we hide that field from the card (since the column implies
+// it) and tweak the right slot: assignee-grouped columns already identify
+// the person, so we show the status tag there instead of the avatar stack.
+function taskCard(task, ctx, { groupedBy = 'status' } = {}) {
+  const project = ctx.projects.find((p) => p.id === task.projectId)
   const client = ctx.clients.find((c) => c.id === task.clientId)
   const status = STATUSES.find((s) => s.id === task.status)
   const deadlineStr = formatDeadline(task.deadline)
   const isOverdue = task.deadline && task.status !== 'done' && toDate(task.deadline) < new Date()
   const isDone = task.status === 'done'
 
-  const clientLogo = client?.logoUrl
+  const showClient = groupedBy !== 'client'
+  const showProject = groupedBy !== 'project'
+  const showStatusTag = groupedBy !== 'status' && groupedBy !== 'assignee'
+
+  const clientLogo = (showClient && client?.logoUrl)
     ? `<img class="client-logo-xs" src="${client.logoUrl}" alt="${esc(client.name)}" title="${esc(client.name)}">`
     : ''
+
+  const rightSlot = groupedBy === 'assignee'
+    ? (status ? `<span class="task-tag" style="color:${status.color}">${status.label}</span>` : '')
+    : avatarStack(task.assignees)
 
   return `
     <div class="task-card${isDone ? ' done' : ''}" data-id="${task.id}" draggable="true">
@@ -470,12 +483,13 @@ function taskCardByProject(task, ctx) {
       <div class="task-card-meta">
         <div class="task-card-tags">
           ${clientLogo}
-          ${client ? `<span class="task-tag">${esc(client.name)}</span>` : ''}
-          ${status ? `<span class="task-tag" style="color:${status.color}">${status.label}</span>` : ''}
+          ${showClient && client ? `<span class="task-tag">${esc(client.name)}</span>` : ''}
+          ${showProject && project ? `<span class="task-tag">${esc(project.name)}</span>` : ''}
+          ${showStatusTag && status ? `<span class="task-tag" style="color:${status.color}">${status.label}</span>` : ''}
         </div>
         <div style="display:flex;align-items:center;gap:6px;">
           ${deadlineStr ? `<span class="task-card-deadline${isOverdue ? ' overdue' : ''}">${deadlineStr}</span>` : ''}
-          ${avatarStack(task.assignees)}
+          ${rightSlot}
         </div>
       </div>
     </div>
@@ -491,101 +505,6 @@ function avatarStack(assignees) {
       ? `<img class="avatar-photo-xs" src="${m.photoURL}" alt="${m.name}" title="${m.name}">`
       : `<span class="avatar-xs" style="background:${m.color}" title="${m.name}">${m.name[0]}</span>`
   ).join('')}</div>`
-}
-
-function taskCardByClient(task, ctx) {
-  const project = ctx.projects.find((p) => p.id === task.projectId)
-  const status = STATUSES.find((s) => s.id === task.status)
-  const deadlineStr = formatDeadline(task.deadline)
-  const isOverdue = task.deadline && task.status !== 'done' && toDate(task.deadline) < new Date()
-  const isDone = task.status === 'done'
-
-  return `
-    <div class="task-card${isDone ? ' done' : ''}" data-id="${task.id}" draggable="true">
-      <div class="task-card-header">
-        ${statusIcon(task.status)}
-        ${task.priority === 'urgent' ? '<i class="ph-fill ph-warning urgent-icon"></i>' : ''}
-        <span class="task-card-title">${esc(task.title)}</span>
-      </div>
-      <div class="task-card-meta">
-        <div class="task-card-tags">
-          ${project ? `<span class="task-tag">${esc(project.name)}</span>` : ''}
-          ${status ? `<span class="task-tag" style="color:${status.color}">${status.label}</span>` : ''}
-        </div>
-        <div style="display:flex;align-items:center;gap:6px;">
-          ${deadlineStr ? `<span class="task-card-deadline${isOverdue ? ' overdue' : ''}">${deadlineStr}</span>` : ''}
-          ${avatarStack(task.assignees)}
-        </div>
-      </div>
-    </div>
-  `
-}
-
-function taskCardByAssignee(task, ctx) {
-  const project = ctx.projects.find((p) => p.id === task.projectId)
-  const client = ctx.clients.find((c) => c.id === task.clientId)
-  const status = STATUSES.find((s) => s.id === task.status)
-  const deadlineStr = formatDeadline(task.deadline)
-  const isOverdue = task.deadline && task.status !== 'done' && toDate(task.deadline) < new Date()
-  const isDone = task.status === 'done'
-
-  const clientLogo = client?.logoUrl
-    ? `<img class="client-logo-xs" src="${client.logoUrl}" alt="${esc(client.name)}" title="${esc(client.name)}">`
-    : ''
-
-  return `
-    <div class="task-card${isDone ? ' done' : ''}" data-id="${task.id}" draggable="true">
-      <div class="task-card-header">
-        ${statusIcon(task.status)}
-        ${task.priority === 'urgent' ? '<i class="ph-fill ph-warning urgent-icon"></i>' : ''}
-        <span class="task-card-title">${esc(task.title)}</span>
-      </div>
-      <div class="task-card-meta">
-        <div class="task-card-tags">
-          ${clientLogo}
-          ${client ? `<span class="task-tag">${esc(client.name)}</span>` : ''}
-          ${project ? `<span class="task-tag">${esc(project.name)}</span>` : ''}
-        </div>
-        <div style="display:flex;align-items:center;gap:6px;">
-          ${deadlineStr ? `<span class="task-card-deadline${isOverdue ? ' overdue' : ''}">${deadlineStr}</span>` : ''}
-          ${status ? `<span class="task-tag" style="color:${status.color}">${status.label}</span>` : ''}
-        </div>
-      </div>
-    </div>
-  `
-}
-
-function taskCard(task, ctx) {
-  const project = ctx.projects.find((p) => p.id === task.projectId)
-  const client = ctx.clients.find((c) => c.id === task.clientId)
-  const deadlineStr = formatDeadline(task.deadline)
-  const isOverdue = task.deadline && task.status !== 'done' && toDate(task.deadline) < new Date()
-  const isDone = task.status === 'done'
-
-  const clientLogo = client?.logoUrl
-    ? `<img class="client-logo-xs" src="${client.logoUrl}" alt="${esc(client.name)}" title="${esc(client.name)}">`
-    : ''
-
-  return `
-    <div class="task-card${isDone ? ' done' : ''}" data-id="${task.id}" draggable="true">
-      <div class="task-card-header">
-        ${statusIcon(task.status)}
-        ${task.priority === 'urgent' ? '<i class="ph-fill ph-warning urgent-icon"></i>' : ''}
-        <span class="task-card-title">${esc(task.title)}</span>
-      </div>
-      <div class="task-card-meta">
-        <div class="task-card-tags">
-          ${clientLogo}
-          ${client ? `<span class="task-tag">${esc(client.name)}</span>` : ''}
-          ${project ? `<span class="task-tag">${esc(project.name)}</span>` : ''}
-        </div>
-        <div style="display:flex;align-items:center;gap:6px;">
-          ${deadlineStr ? `<span class="task-card-deadline${isOverdue ? ' overdue' : ''}">${deadlineStr}</span>` : ''}
-          ${avatarStack(task.assignees)}
-        </div>
-      </div>
-    </div>
-  `
 }
 
 function statusIcon(status) {
