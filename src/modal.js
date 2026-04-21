@@ -100,8 +100,8 @@ saveBtn.addEventListener('click', async () => {
 
 // Delete handler
 deleteBtn.addEventListener('click', async () => {
-  if (currentCtx.userRole === 'client') {
-    alert('You do not have permissions to Delete tasks.')
+  if (currentCtx.userRole === 'client' && currentTask?.createdBy !== currentCtx.currentUser?.email) {
+    alert('You can only delete tasks you created.')
     return
   }
   if (currentTask && confirm('Delete this task?')) {
