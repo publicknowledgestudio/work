@@ -16,9 +16,18 @@ let calendarDate = null // null = today, or a Date object for a different day
 let selectedClientId = '' // '' = all clients
 let weekOffset = 0 // 0 = current week, -1 = prev, +1 = next
 
+// AbortController for listeners attached to stable nodes inside renderMyDay.
+// We abort at the start of each render so listeners from the previous render
+// (e.g. the marquee mousedown on `container`) don't accumulate.
+let renderAC = null
+
 export function resetWeekOffset() { weekOffset = 0 }
 
 export async function renderMyDay(container, tasks, currentUser, ctx) {
+  renderAC?.abort()
+  renderAC = new AbortController()
+  const renderSignal = renderAC.signal
+
   const myEmail = currentUser?.email
   if (!viewingEmail) viewingEmail = myEmail
   const isOwnDay = viewingEmail === myEmail
@@ -809,7 +818,7 @@ function bindMyDayActions(container, tasks, currentUser, ctx, now, isOwnDay, { c
     document.addEventListener('mouseup', onUp)
   }
 
-  container.addEventListener('mousedown', onMarqueeDown)
+  container.addEventListener('mousedown', onMarqueeDown, { signal: renderSignal })
 
 }
 
