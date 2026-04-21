@@ -576,12 +576,15 @@ function showCellPopover(cell, email, date, existingLeave) {
       })
     }
   } else if (canEdit) {
-    // Show status options — different for weekends vs weekdays
+    // Show status options — off-days (weekends OR studio holidays) offer
+    // overtime; regular weekdays offer work/leave options.
     const dateObj = new Date(date + 'T00:00:00')
     const isWeekendDay = dateObj.getDay() === 0 || dateObj.getDay() === 6
+    const isHolidayDay = allHolidays.some((h) => h.date === date)
+    const isOffDay = isWeekendDay || isHolidayDay
 
     const hasDot = !!cell.querySelector('.att-dot')
-    const statuses = isWeekendDay ? [
+    const statuses = isOffDay ? [
       { id: 'overtime_full', label: 'Overtime (Full Day)', dotClass: 'att-dot-green', icon: 'ph-clock-clockwise', isOvertime: true },
       { id: 'overtime_half', label: 'Overtime (Half Day)', dotClass: 'att-dot-yellow', icon: 'ph-clock-afternoon', isOvertime: true, halfDay: true },
       ...(hasDot ? [{ id: 'clear', label: 'Clear', dotClass: '', icon: 'ph-x', isClear: true }] : []),
