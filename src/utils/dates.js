@@ -28,3 +28,22 @@ export function formatDeadline(deadline) {
 export function formatShortDate(d) {
   return d.toLocaleDateString('en-IN', { month: 'short', day: 'numeric' })
 }
+
+// YYYY-MM-DD string for <input type="date"> values and API payloads.
+// Accepts anything toDate accepts. Returns '' for null/undefined.
+export function toISODate(ts) {
+  const d = toDate(ts)
+  if (!d || isNaN(d.getTime())) return ''
+  return d.toISOString().split('T')[0]
+}
+
+// Convert any date-like value (Firestore Timestamp, { seconds }, Date, ISO
+// string) to an ISO-8601 UTC string. Returns null for absent values so
+// consumers can keep distinguishing "no date" from "epoch". Used at the
+// Firestore read boundary (see db.js normalizeTask) so the rest of the
+// app never has to shape-sniff timestamps.
+export function toISOString(ts) {
+  const d = toDate(ts)
+  if (!d || isNaN(d.getTime())) return null
+  return d.toISOString()
+}

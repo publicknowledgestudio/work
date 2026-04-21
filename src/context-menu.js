@@ -1,5 +1,6 @@
 import { STATUSES, PRIORITIES, TEAM } from './config.js'
 import { createTask, updateTask, deleteTask, loadDailyFocus, saveDailyFocus, findDailyFocusContainingTask } from './db.js'
+import { toISODate } from './utils/dates.js'
 
 let menuEl = null
 let activeTaskIds = [] // supports single or multi-select
@@ -377,10 +378,9 @@ function closeMenu() {
   openSubmenu = null
 }
 
+// null when absent — createTask distinguishes null from '' for deadlines
 function formatDateForCreate(deadline) {
-  if (!deadline) return null
-  const d = deadline.toDate ? deadline.toDate() : deadline.seconds ? new Date(deadline.seconds * 1000) : new Date(deadline)
-  return d.toISOString().split('T')[0]
+  return toISODate(deadline) || null
 }
 
 function esc(str) {

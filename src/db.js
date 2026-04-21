@@ -181,10 +181,30 @@ export async function updateProjectContent(db, projectId, content, updatedBy) {
 
 // ===== Tasks =====
 
-// Backward compat: convert old `assignee` string to `assignees` array
+// Normalize a task document read from Firestore into the shape the
+// frontend uses. Two things happen here:
+//   1. Backward compat — convert old `assignee` (single string) to the
+//      `assignees` (array) shape.
+//   2. Timestamp normalization — coerce every date-like field to an ISO
+//      string. Firestore returns Timestamp objects; the REST API (see
+//      functions/index.js) already returns ISO strings. Normalizing at
+//      the read boundary means the rest of the app sees one shape and
+//      doesn't need to shape-sniff.
+const TASK_TIMESTAMP_FIELDS = ['deadline', 'createdAt', 'updatedAt', 'closedAt']
+
 export function normalizeTask(task) {
   if (!task.assignees) {
     task.assignees = task.assignee ? [task.assignee] : []
+  }
+  for (const field of TASK_TIMESTAMP_FIELDS) {
+    const v = task[field]
+    if (v == null) continue
+    if (typeof v === 'string') continue // already ISO
+    if (typeof v.toDate === 'function') {
+      task[field] = v.toDate().toISOString()
+    } else if (typeof v.seconds === 'number') {
+      task[field] = new Date(v.seconds * 1000).toISOString()
+    }
   }
   return task
 }

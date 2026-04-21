@@ -1,5 +1,6 @@
 import { TEAM, PRIORITIES, STATUSES } from './config.js'
 import { createTask, updateTask, deleteTask, createProject } from './db.js'
+import { toISODate } from './utils/dates.js'
 
 const overlay = document.getElementById('task-modal')
 const closeBtn = document.getElementById('modal-close')
@@ -383,11 +384,7 @@ function close() {
   selectedClientId = ''
 }
 
-function formatDateInput(deadline) {
-  if (!deadline) return ''
-  const d = deadline.toDate ? deadline.toDate() : deadline.seconds ? new Date(deadline.seconds * 1000) : new Date(deadline)
-  return d.toISOString().split('T')[0]
-}
+const formatDateInput = toISODate
 
 function formatNoteDate(ts) {
   if (!ts) return ''

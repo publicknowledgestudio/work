@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
-import { toDate, formatDeadline, formatShortDate } from './dates.js'
+import { toDate, formatDeadline, formatShortDate, toISODate, toISOString } from './dates.js'
 
 describe('toDate', () => {
   it('returns null for null/undefined', () => {
@@ -69,5 +69,33 @@ describe('formatDeadline', () => {
 describe('formatShortDate', () => {
   it('renders month and day', () => {
     expect(formatShortDate(new Date('2026-04-21T12:00:00Z'))).toMatch(/Apr/)
+  })
+})
+
+describe('toISODate', () => {
+  it('returns "" for null/undefined', () => {
+    expect(toISODate(null)).toBe('')
+    expect(toISODate(undefined)).toBe('')
+  })
+  it('returns YYYY-MM-DD from ISO string', () => {
+    expect(toISODate('2026-04-21T12:00:00Z')).toBe('2026-04-21')
+  })
+  it('returns YYYY-MM-DD from Firestore Timestamp', () => {
+    const ts = { toDate: () => new Date('2026-04-21T12:00:00Z') }
+    expect(toISODate(ts)).toBe('2026-04-21')
+  })
+})
+
+describe('toISOString', () => {
+  it('returns null for null/undefined', () => {
+    expect(toISOString(null)).toBeNull()
+    expect(toISOString(undefined)).toBeNull()
+  })
+  it('round-trips ISO strings', () => {
+    expect(toISOString('2026-04-21T12:00:00Z')).toBe('2026-04-21T12:00:00.000Z')
+  })
+  it('normalizes Firestore Timestamps', () => {
+    const ts = { toDate: () => new Date('2026-04-21T12:00:00Z') }
+    expect(toISOString(ts)).toBe('2026-04-21T12:00:00.000Z')
   })
 })

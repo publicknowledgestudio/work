@@ -242,6 +242,24 @@ describe('db.js', () => {
       expect(normalized.assignees).toEqual([])
     })
 
+    it('should coerce Firestore Timestamp-shaped fields to ISO strings', () => {
+      const fakeDate = new Date('2026-04-01T12:00:00Z')
+      const task = {
+        id: 't1',
+        title: 'Task',
+        deadline: { toDate: () => fakeDate },                          // Firestore Timestamp
+        createdAt: { seconds: 1711929600, nanoseconds: 0 },            // Serialized shape
+        updatedAt: '2026-03-01T00:00:00.000Z',                         // Already ISO — leave alone
+        closedAt: null,                                                 // Null — leave alone
+      }
+      const normalized = normalizeTask(task)
+
+      expect(normalized.deadline).toBe('2026-04-01T12:00:00.000Z')
+      expect(normalized.createdAt).toBe(new Date(1711929600 * 1000).toISOString())
+      expect(normalized.updatedAt).toBe('2026-03-01T00:00:00.000Z')
+      expect(normalized.closedAt).toBeNull()
+    })
+
     it('should create task with defaults', async () => {
       vi.mocked(firestore.addDoc).mockResolvedValue({ id: 'task-123' })
 
