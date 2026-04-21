@@ -190,8 +190,9 @@ describe('timesheets.js', () => {
       const monthInput = container.querySelector('#ts-month')
 
       clientSelect.value = 'client-1'
-      monthInput.value = '2026-02'
       clientSelect.dispatchEvent(new Event('change'))
+      monthInput.value = '2026-02'
+      monthInput.dispatchEvent(new Event('change'))
 
       await new Promise(resolve => setTimeout(resolve, 100))
 
