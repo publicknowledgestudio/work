@@ -8,7 +8,7 @@ import {
 } from 'firebase/auth'
 import { getFirestore } from 'firebase/firestore'
 import { firebaseConfig, TEAM, STATUSES } from './config.js'
-import { loadClients, loadClientById, loadProjects, loadProjectsByClient, loadPeople, subscribeToTasks, saveUserProfile, loadUserProfiles, updateTask, loadClientUser, subscribeToTasksByClient } from './db.js'
+import { loadClients, loadClientById, loadProjects, loadProjectsByClient, loadPeople, subscribeToTasks, saveUserProfile, loadUserProfiles, updateTask, loadClientUser, subscribeToTasksByClient, setCurrentUser } from './db.js'
 import { renderBoard, renderBoardByAssignee, renderBoardByClient, renderBoardByProject } from './board.js'
 import { renderMyTasks } from './my-tasks.js'
 import { renderMyDay } from './my-day.js'
@@ -172,6 +172,8 @@ function showStatusToast(title, currentStatus, taskId, previousStatus) {
     toast.className = 'status-toast'
     document.body.appendChild(toast)
   }
+  toast._taskId = taskId
+  toast._title = title
 
   const statusLabel = STATUSES.find((s) => s.id === currentStatus)?.label || currentStatus
 
@@ -184,10 +186,13 @@ function showStatusToast(title, currentStatus, taskId, previousStatus) {
     .join('')
 
   toast.innerHTML = `
-    <span class="status-toast-msg">${esc(title)} → <strong>${statusLabel}</strong></span>
-    <div class="status-toast-actions">
-      ${statusBtns}
+    <div class="status-toast-row">
+      <span class="status-toast-msg">${esc(title)} → <strong>${statusLabel}</strong></span>
+      <div class="status-toast-actions">
+        ${statusBtns}
+      </div>
     </div>
+    <div class="status-toast-slack" hidden></div>
   `
   toast.classList.remove('hide')
   toast.classList.add('show')
@@ -200,21 +205,153 @@ function showStatusToast(title, currentStatus, taskId, previousStatus) {
       await updateTask(db, taskId, { status: optBtn.dataset.status })
       const newLabel = STATUSES.find((s) => s.id === optBtn.dataset.status)?.label || optBtn.dataset.status
       toast.querySelector('.status-toast-msg').innerHTML = `${esc(title)} → <strong>${newLabel}</strong>`
-      // Refresh toast timer
-      clearTimeout(toast._hideTimer)
-      toast._hideTimer = setTimeout(() => {
-        toast.classList.remove('show')
-        toast.classList.add('hide')
-      }, 3000)
+      resetToastHideTimer(toast, 3000)
     })
   })
 
-  // Auto-hide after 4s
+  resetToastHideTimer(toast, 4000)
+}
+
+function resetToastHideTimer(toast, ms) {
   clearTimeout(toast._hideTimer)
+  if (ms == null) return // caller wants the toast to stay open indefinitely
   toast._hideTimer = setTimeout(() => {
     toast.classList.remove('show')
     toast.classList.add('hide')
-  }, 4000)
+  }, ms)
+}
+
+// ── Slack post toast integration ──
+// Backend posts to Slack on task-complete / external-create, writes the
+// outcome as task.slackNotification. We watch the subscription for new
+// notifications targeted at the current user and reflect them in the
+// toast (updating the status-toast if it's already open for the same
+// task, or raising a new toast for failures otherwise).
+const seenSlackNotifKeys = new Set()
+let slackNotifInitialized = false
+
+function slackNotifKey(taskId, at) {
+  if (!at) return `${taskId}:null`
+  if (typeof at === 'string') return `${taskId}:${at}`
+  if (typeof at.seconds === 'number') return `${taskId}:${at.seconds}.${at.nanoseconds || 0}`
+  if (typeof at.toDate === 'function') return `${taskId}:${at.toDate().getTime()}`
+  return `${taskId}:${String(at)}`
+}
+
+function checkSlackNotifications(tasks) {
+  const myEmail = currentUser?.email
+  for (const t of tasks) {
+    const n = t.slackNotification
+    if (!n || !n.at) continue
+    const key = slackNotifKey(t.id, n.at)
+    if (seenSlackNotifKeys.has(key)) continue
+    seenSlackNotifKeys.add(key)
+    // On the very first subscription snapshot, don't surface historical
+    // notifications — they've already been seen (or missed) in prior sessions.
+    if (!slackNotifInitialized) continue
+    if (!myEmail || n.actedBy !== myEmail) continue
+    if (n.status === 'dismissed') continue
+    handleSlackNotification(t, n)
+  }
+  slackNotifInitialized = true
+}
+
+function handleSlackNotification(task, n) {
+  const toast = document.getElementById('status-toast')
+  const toastIsForThisTask = toast && toast.classList.contains('show') && toast._taskId === task.id
+
+  if (n.status === 'ok') {
+    if (toastIsForThisTask) {
+      renderSlackLine(toast, task.id, n)
+      resetToastHideTimer(toast, 3000)
+    }
+    // Silent otherwise — successful posts don't warrant a late toast.
+    return
+  }
+
+  if (n.status === 'failed') {
+    if (toastIsForThisTask) {
+      renderSlackLine(toast, task.id, n)
+      resetToastHideTimer(toast, null) // require explicit user action
+    } else {
+      showSlackFailedToast(task, n)
+    }
+    return
+  }
+
+  if (n.status === 'retrying' && toastIsForThisTask) {
+    renderSlackLine(toast, task.id, n)
+    resetToastHideTimer(toast, null)
+  }
+}
+
+function renderSlackLine(toast, taskId, n) {
+  const slackEl = toast.querySelector('.status-toast-slack')
+  if (!slackEl) return
+  slackEl.hidden = false
+  if (n.status === 'ok') {
+    slackEl.className = 'status-toast-slack ok'
+    slackEl.innerHTML = `<i class="ph-fill ph-check-circle"></i> Posted to Slack`
+  } else if (n.status === 'retrying') {
+    slackEl.className = 'status-toast-slack retrying'
+    slackEl.innerHTML = `<i class="ph ph-arrow-clockwise"></i> Retrying Slack post…`
+  } else if (n.status === 'failed') {
+    slackEl.className = 'status-toast-slack failed'
+    slackEl.innerHTML = `
+      <span><i class="ph-fill ph-warning"></i> Slack post failed: <code>${esc(n.error || 'unknown_error')}</code></span>
+      <div class="status-toast-slack-actions">
+        <button class="status-toast-option" data-slack-action="retry">Retry</button>
+        <button class="status-toast-option" data-slack-action="dismiss">Dismiss</button>
+      </div>
+    `
+    wireSlackActions(slackEl, toast, taskId)
+  }
+}
+
+function wireSlackActions(slackEl, toast, taskId) {
+  const retryBtn = slackEl.querySelector('[data-slack-action="retry"]')
+  const dismissBtn = slackEl.querySelector('[data-slack-action="dismiss"]')
+  if (retryBtn) {
+    retryBtn.addEventListener('click', async () => {
+      retryBtn.disabled = true
+      retryBtn.textContent = '...'
+      await updateTask(db, taskId, { 'slackNotification.status': 'retrying' })
+    })
+  }
+  if (dismissBtn) {
+    dismissBtn.addEventListener('click', async () => {
+      dismissBtn.disabled = true
+      await updateTask(db, taskId, { 'slackNotification.status': 'dismissed' })
+      toast.classList.remove('show')
+      toast.classList.add('hide')
+    })
+  }
+}
+
+function showSlackFailedToast(task, n) {
+  // Reuse the status-toast element as a carrier even when the
+  // status-change flow didn't open it (user navigated away before the
+  // Slack result arrived, or the task was completed by a non-toast path).
+  let toast = document.getElementById('status-toast')
+  if (!toast) {
+    toast = document.createElement('div')
+    toast.id = 'status-toast'
+    toast.className = 'status-toast'
+    document.body.appendChild(toast)
+  }
+  toast._taskId = task.id
+  toast._title = task.title
+
+  toast.innerHTML = `
+    <div class="status-toast-row">
+      <span class="status-toast-msg">${esc(task.title)}</span>
+    </div>
+    <div class="status-toast-slack"></div>
+  `
+  toast.classList.remove('hide')
+  toast.classList.add('show')
+  renderSlackLine(toast, task.id, n)
+  resetToastHideTimer(toast, null)
 }
 
 // Auth — basic login (no extra scopes, avoids "unverified app" warning)
@@ -283,6 +420,7 @@ export async function reconnectCalendar() {
 onAuthStateChanged(auth, async (user) => {
   if (user) {
     currentUser = user
+    setCurrentUser(user.email)
 
     // Detect user role
     if (user.email.endsWith('@publicknowledge.co')) {
@@ -420,11 +558,13 @@ onAuthStateChanged(auth, async (user) => {
     // Subscribe to tasks (real-time) — scoped for client users
     if (userRole === 'client') {
       unsubTasks = subscribeToTasksByClient(db, userClientId, (tasks) => {
+        checkSlackNotifications(tasks)
         allTasks = tasks
         renderCurrentView()
       })
     } else {
       unsubTasks = subscribeToTasks(db, (tasks) => {
+        checkSlackNotifications(tasks)
         allTasks = tasks
         renderCurrentView()
       })

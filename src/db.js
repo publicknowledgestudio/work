@@ -16,6 +16,11 @@ import {
 } from 'firebase/firestore'
 import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage'
 
+// Current user email — set once on login by main.js. Lets updateTask
+// stamp updatedBy without threading the email through every call site.
+let currentUserEmail = ''
+export function setCurrentUser(email) { currentUserEmail = email || '' }
+
 // ===== User Profiles =====
 
 export async function saveUserProfile(db, email, data) {
@@ -287,6 +292,9 @@ export async function createTask(db, data) {
 
 export async function updateTask(db, taskId, data) {
   const update = { ...data, updatedAt: serverTimestamp() }
+  if (currentUserEmail && update.updatedBy === undefined) {
+    update.updatedBy = currentUserEmail
+  }
 
   // Set closedAt when moving to done
   if (data.status === 'done') {

@@ -898,7 +898,13 @@ body {
   pointer-events: none;
   transition: opacity 0.25s ease, transform 0.25s ease;
   z-index: 9999;
-  max-width: 520px;
+  max-width: 560px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.status-toast-row {
   display: flex;
   align-items: center;
   gap: 12px;
@@ -947,6 +953,36 @@ body {
 .status-toast-option:disabled {
   opacity: 0.5;
   cursor: default;
+}
+
+.status-toast-slack {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  font-size: 12px;
+}
+
+.status-toast-slack[hidden] { display: none; }
+
+.status-toast-slack.ok { color: #86efac; }
+.status-toast-slack.retrying { color: #cbd5e1; }
+.status-toast-slack.failed { color: #fca5a5; }
+
+.status-toast-slack code {
+  background: rgba(255, 255, 255, 0.08);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  color: #fed7aa;
+}
+
+.status-toast-slack-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
 }
 
 /* ===== Task Card ===== */

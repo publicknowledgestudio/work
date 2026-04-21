@@ -384,6 +384,18 @@ exports.onTaskWritten = onDocumentWritten(
     const afterAssignees = task.assignees || []
     const beforeAssignees = before?.assignees || []
 
+    // Slack retry: frontend flipped slackNotification.status from 'failed'
+    // to 'retrying' after a user clicked Retry in the toast. Re-post with
+    // the stored channel/text/actedBy and return early so we don't also
+    // re-run the original notify paths below (which are keyed on other
+    // fields and wouldn't fire anyway, but being explicit is safer).
+    const beforeNotif = before?.slackNotification
+    const afterNotif = task.slackNotification
+    if (beforeNotif?.status === 'failed' && afterNotif?.status === 'retrying' && afterNotif.channel && afterNotif.text) {
+      await postToSlackChannel(event.params.taskId, afterNotif.channel, afterNotif.text, afterNotif.actedBy || '')
+      return
+    }
+
     // Notify when Asty is newly assigned
     const newlyAssigned = afterAssignees.includes(ASTY_EMAIL) && !beforeAssignees.includes(ASTY_EMAIL)
     if (newlyAssigned) {
@@ -409,7 +421,7 @@ exports.onTaskWritten = onDocumentWritten(
         const userName = clientUserDoc.exists ? (clientUserDoc.data().name || createdBy.split('@')[0]) : createdBy.split('@')[0]
         const contextLine = [projectName, client.name].filter(Boolean).join(' · ')
         const message = `📋 New task created by external user "${userName}" — ${task.title}\n${contextLine}`
-        postToSlackChannel(channelId, message)
+        await postToSlackChannel(event.params.taskId, channelId, message, createdBy)
       }
     }
 
@@ -426,10 +438,11 @@ exports.onTaskWritten = onDocumentWritten(
         const client = clientDoc.exists ? clientDoc.data() : null
         const channelId = project?.slackChannelId || client?.slackChannelId
         if (channelId) {
-          const completedBy = lookupTeamName(task.updatedBy || afterAssignees[0] || '')
+          const actedByEmail = task.updatedBy || ''
+          const completedBy = lookupTeamName(actedByEmail || afterAssignees[0] || '')
           const projectLine = projectName || client.name || ''
           const message = `✅ ${task.title}\n${projectLine} · Marked done by ${completedBy}`
-          postToSlackChannel(channelId, message)
+          await postToSlackChannel(event.params.taskId, channelId, message, actedByEmail)
         }
       }
     }
@@ -442,18 +455,45 @@ function lookupTeamName(email) {
   return member ? member.name : email.split('@')[0]
 }
 
-function postToSlackChannel(channelId, text) {
-  const token = process.env.SLACK_BOT_TOKEN
-  if (!token) return
-
-  fetch('https://slack.com/api/chat.postMessage', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${token}`,
+// Post to Slack and record the outcome on the task so the frontend can
+// surface a success/failure toast to the user who acted. Slack returns
+// HTTP 200 even for API-level failures (ok: false with an error code
+// like 'not_in_channel'), so we must parse the body to detect them.
+async function postToSlackChannel(taskId, channelId, text, actedBy) {
+  const writeOutcome = (status, error) => db.collection('tasks').doc(taskId).update({
+    slackNotification: {
+      status,
+      error: error || '',
+      channel: channelId || '',
+      text: text || '',
+      actedBy: actedBy || '',
+      at: admin.firestore.FieldValue.serverTimestamp(),
     },
-    body: JSON.stringify({ channel: channelId, text }),
-  }).catch((err) => console.error('Slack postMessage error:', err))
+  }).catch((err) => console.error('Failed writing slackNotification:', err))
+
+  const token = process.env.SLACK_BOT_TOKEN
+  if (!token) {
+    console.error('Slack post skipped: SLACK_BOT_TOKEN not configured')
+    return writeOutcome('failed', 'missing_bot_token')
+  }
+
+  try {
+    const resp = await fetch('https://slack.com/api/chat.postMessage', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify({ channel: channelId, text }),
+    })
+    const data = await resp.json()
+    if (data.ok) return writeOutcome('ok', '')
+    console.error('Slack postMessage failed:', data.error, 'channel:', channelId)
+    return writeOutcome('failed', data.error || 'unknown_error')
+  } catch (err) {
+    console.error('Slack postMessage network error:', err)
+    return writeOutcome('failed', 'network_error')
+  }
 }
 
 // === Scrum Summary ===
