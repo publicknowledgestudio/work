@@ -216,16 +216,16 @@ function renderBalanceCards(team, leaves, userEmail, admin) {
 function renderBalanceNumbers(balance, isMonthly = false) {
   const overLimit = balance.available < 0 || (balance.available === 0 && balance.used > 0)
   const periodSuffix = isMonthly ? ' this month' : ''
-  const earnedSuffix = isMonthly ? ' this month' : ' so far'
+  const accruedSuffix = isMonthly ? ' this month' : ' so far'
   const usedLabel = isMonthly ? `used${periodSuffix}` : 'used or scheduled'
 
   const colorClass = overLimit ? 'balance-num-over' : 'balance-num-ok'
   const lines = [
-    `<div class="balance-detail-line balance-detail-earned"><strong>${balance.accrued}</strong> earned${earnedSuffix}</div>`,
+    `<div class="balance-detail-line balance-detail-accrued"><strong>${balance.accrued}</strong> accrued${accruedSuffix}</div>`,
     `<div class="balance-detail-line"><strong>${balance.used}</strong> ${usedLabel}</div>`,
   ]
   if (balance.overtimeCredit > 0) {
-    lines.push(`<div class="balance-detail-line balance-detail-earned"><strong>+${balance.overtimeCredit}</strong> overtime credit</div>`)
+    lines.push(`<div class="balance-detail-line balance-detail-accrued"><strong>+${balance.overtimeCredit}</strong> overtime credit</div>`)
   }
 
   return `
