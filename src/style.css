@@ -5439,14 +5439,16 @@ body {
 
 .balance-card-rows {
   display: flex;
-  flex-direction: column;
-  gap: 10px;
+  flex-direction: row;
+  gap: 16px;
 }
 
 .balance-row {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  flex: 1;
+  min-width: 0;
 }
 
 .balance-label {
@@ -5486,11 +5488,13 @@ body {
   margin-right: 2px;
 }
 
-.balance-num-ok { color: #374151; }
-.balance-num-ok strong { color: #16a34a; }
+.balance-num-ok strong,
+.balance-num-ok .balance-headline { color: #16a34a; }
 
-.balance-num-over { color: #dc2626; }
-.balance-num-over strong { color: #dc2626; }
+.balance-num-over strong,
+.balance-num-over .balance-headline { color: #dc2626; }
+
+.balance-detail-line strong { font-weight: 600; }
 
 .balance-num-overtime {
   color: #16a34a;

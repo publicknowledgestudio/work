@@ -219,18 +219,19 @@ function renderBalanceNumbers(balance, isMonthly = false) {
   const earnedSuffix = isMonthly ? ' this month' : ' so far'
   const usedLabel = isMonthly ? `used${periodSuffix}` : 'used or scheduled'
 
+  const colorClass = overLimit ? 'balance-num-over' : 'balance-num-ok'
   const lines = [
-    `${balance.accrued} earned${earnedSuffix}`,
-    `${balance.used} ${usedLabel}`,
+    `<strong>${balance.accrued}</strong> earned${earnedSuffix}`,
+    `<strong>${balance.used}</strong> ${usedLabel}`,
   ]
   if (balance.overtimeCredit > 0) {
-    lines.push(`+${balance.overtimeCredit} overtime credit`)
+    lines.push(`<strong>+${balance.overtimeCredit}</strong> overtime credit`)
   }
 
   return `
-    <div class="balance-nums">
+    <div class="balance-nums ${colorClass}">
       ${lines.map((l) => `<div class="balance-detail-line">${l}</div>`).join('')}
-      <div class="balance-headline ${overLimit ? 'balance-num-over' : 'balance-num-ok'}">
+      <div class="balance-headline">
         <strong>${balance.available}</strong> left${periodSuffix}
       </div>
     </div>
