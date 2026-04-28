@@ -8,7 +8,7 @@ import {
 } from 'firebase/auth'
 import { getFirestore } from 'firebase/firestore'
 import { firebaseConfig, TEAM, STATUSES } from './config.js'
-import { loadClients, loadClientById, loadProjects, loadProjectsByClient, loadPeople, subscribeToTasks, saveUserProfile, loadUserProfiles, updateTask, loadClientUser, subscribeToTasksByClient, setCurrentUser } from './db.js'
+import { loadClients, loadClientById, loadProjects, loadProjectsByClient, loadPeople, subscribeToTasks, saveUserProfile, loadUserProfiles, updateTask, loadClientUser, subscribeToTasksByClient, setCurrentUser, seedContractsFromTeam } from './db.js'
 import { renderBoard, renderBoardByAssignee, renderBoardByClient, renderBoardByProject } from './board.js'
 import { renderMyTasks } from './my-tasks.js'
 import { renderMyDay } from './my-day.js'
@@ -24,6 +24,7 @@ import { renderClientBoard } from './client-board.js'
 import { renderClientTimesheets } from './client-timesheets.js'
 import { renderClientTimeline } from './client-timeline.js'
 import { renderAttendance, cleanupAttendance } from './attendance.js'
+import { renderContracts, cleanupContracts } from './contracts.js'
 
 // Preload cached image URLs into browser HTTP cache
 try {
@@ -63,6 +64,7 @@ const ROUTES = {
   '/references':    { view: 'references' },
   '/manage':        { view: 'clients' },
   '/attendance':        { view: 'attendance' },
+  '/contracts':         { view: 'contracts' },
   '/client-board':      { view: 'client-board' },
   '/client-timesheets': { view: 'client-timesheets' },
   '/client-timeline':   { view: 'client-timeline' },
@@ -72,7 +74,7 @@ const VIEW_TO_PATH = {
   'my-day': '/my-week', 'my-tasks': '/my-tasks', 'standup': '/standup',
   'timesheets': '/timesheets', 'people': '/people',
   'references': '/references', 'clients': '/manage',
-  'attendance': '/attendance',
+  'attendance': '/attendance', 'contracts': '/contracts',
   'client-board': '/client-board', 'client-timesheets': '/client-timesheets',
   'client-timeline': '/client-timeline',
 }
@@ -509,6 +511,9 @@ onAuthStateChanged(auth, async (user) => {
       clients = await loadClients(db)
       projects = await loadProjects(db)
       people = await loadPeople(db)
+      // Idempotent: seed initial contracts for any team member that doesn't
+      // have one yet. Removed in Phase 4 once joinDate hardcode is gone.
+      try { await seedContractsFromTeam(db, TEAM) } catch (e) { console.warn('contract seed skipped:', e?.message) }
     }
     populateFilters()
 
@@ -536,7 +541,7 @@ onAuthStateChanged(auth, async (user) => {
       // Hide team-only nav tabs
       navTabs.forEach((tab) => {
         const view = tab.dataset.view
-        const teamOnlyViews = ['my-day', 'my-tasks', 'board', 'standup', 'timesheets', 'people', 'references', 'clients', 'attendance']
+        const teamOnlyViews = ['my-day', 'my-tasks', 'board', 'standup', 'timesheets', 'people', 'references', 'clients', 'attendance', 'contracts']
         if (teamOnlyViews.includes(view)) tab.style.display = 'none'
       })
 
@@ -877,6 +882,7 @@ function renderCurrentView() {
   if (currentView !== 'people') cleanupPeople()
 if (currentView !== 'references') cleanupReferences()
   if (currentView !== 'attendance') cleanupAttendance()
+  if (currentView !== 'contracts') cleanupContracts()
 
   switch (currentView) {
     case 'board':
@@ -905,6 +911,9 @@ if (currentView !== 'references') cleanupReferences()
       break
     case 'attendance':
       renderAttendance(mainContent, ctx)
+      break
+    case 'contracts':
+      renderContracts(mainContent, ctx)
       break
     case 'client-board':
       renderClientBoard(mainContent, tasks, ctx)

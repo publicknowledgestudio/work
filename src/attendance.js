@@ -1,11 +1,14 @@
 import { TEAM, ATTENDANCE_STATUSES, isAdmin, getAttendanceTeam } from './config.js'
-import { subscribeToLeaves, createLeave, cancelLeave, subscribeToHolidays, createHoliday, deleteHoliday } from './db.js'
+import { subscribeToLeaves, createLeave, cancelLeave, subscribeToHolidays, createHoliday, deleteHoliday, subscribeToContracts } from './db.js'
 import { openLeaveModal } from './leave-modal.js'
+import { accrualMonthsFromContracts, contractsForUser, earliestContractStart } from './utils/contracts.js'
 
 let unsubLeaves = null
 let unsubHolidays = null
+let unsubContracts = null
 let allLeaves = []
 let allHolidays = []
+let allContracts = []
 let currentMonth = '' // 'YYYY-MM'
 let activePopover = null // track open cell popover
 let currentCtx = null // store ctx for popover use
@@ -16,21 +19,27 @@ export function renderAttendance(container, ctx) {
     currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
   }
 
-  // Subscribe to leaves + holidays (real-time)
+  // Subscribe to leaves + holidays + contracts (real-time)
   if (unsubLeaves) unsubLeaves()
   if (unsubHolidays) unsubHolidays()
+  if (unsubContracts) unsubContracts()
 
   let ready = 0
-  const checkReady = () => { if (++ready >= 2) renderContent(container, ctx) }
+  const checkReady = () => { if (++ready >= 3) renderContent(container, ctx) }
 
   unsubLeaves = subscribeToLeaves(ctx.db, (leaves) => {
     allLeaves = leaves
-    if (ready >= 2) renderContent(container, ctx)
+    if (ready >= 3) renderContent(container, ctx)
     else checkReady()
   })
   unsubHolidays = subscribeToHolidays(ctx.db, (holidays) => {
     allHolidays = holidays
-    if (ready >= 2) renderContent(container, ctx)
+    if (ready >= 3) renderContent(container, ctx)
+    else checkReady()
+  })
+  unsubContracts = subscribeToContracts(ctx.db, (contracts) => {
+    allContracts = contracts
+    if (ready >= 3) renderContent(container, ctx)
     else checkReady()
   })
 }
@@ -38,6 +47,7 @@ export function renderAttendance(container, ctx) {
 export function cleanupAttendance() {
   if (unsubLeaves) { unsubLeaves(); unsubLeaves = null }
   if (unsubHolidays) { unsubHolidays(); unsubHolidays = null }
+  if (unsubContracts) { unsubContracts(); unsubContracts = null }
 }
 
 function renderContent(container, ctx) {
@@ -137,7 +147,7 @@ function renderContent(container, ctx) {
   // Bind request leave buttons
   container.querySelectorAll('[data-action="request-leave"]').forEach((btn) => {
     btn.addEventListener('click', () => {
-      openLeaveModal({ ...ctx, allLeaves: approvedLeaves }, {
+      openLeaveModal({ ...ctx, allLeaves: approvedLeaves, allContracts }, {
         onSave: () => {},
         forEmail: btn.dataset.email || userEmail,
       })
@@ -184,7 +194,9 @@ function renderBalanceCards(team, leaves, userEmail, admin) {
       ? `<img class="avatar-photo-sm" src="${memberObj.photoURL}" alt="${member.name}">`
       : `<span class="avatar-sm" style="background:${memberObj?.color || '#6b7280'}">${member.name[0]}</span>`
 
-    const joinLabel = formatDate(member.joinDate)
+    const memberContracts = contractsForUser(allContracts, member.email)
+    const startDate = earliestContractStart(memberContracts) || member.joinDate
+    const joinLabel = startDate ? formatDate(startDate) : ''
 
     return `
       <div class="balance-card">
@@ -272,6 +284,8 @@ function renderMonthGrid(team, leaves) {
       ? `<img class="avatar-photo-xs" src="${memberObj.photoURL}" alt="${member.name}">`
       : `<span class="avatar-xs" style="background:${memberObj?.color || '#6b7280'}">${member.name[0]}</span>`
 
+    const memberStart = earliestContractStart(contractsForUser(allContracts, member.email)) || member.joinDate
+
     rowsHtml += `<div class="att-grid-cell att-grid-name">${avatarHtml} ${esc(member.name)}</div>`
 
     for (let d = 1; d <= daysInMonth; d++) {
@@ -337,7 +351,7 @@ function renderMonthGrid(team, leaves) {
       }
 
       const today = new Date().toISOString().split('T')[0]
-      const beforeJoin = member.joinDate && dateStr < member.joinDate
+      const beforeJoin = memberStart && dateStr < memberStart
       const showDot = !beforeJoin && (dateStr <= today || leave)
 
       rowsHtml += `<div class="att-grid-cell att-clickable${leave ? ' att-has-leave' : ''}" title="${tooltip}" data-email="${member.email}" data-date="${dateStr}"${leave ? ` data-leave-id="${leave.id}"` : ''}>
@@ -472,8 +486,12 @@ function getBalance(member, type, leaves) {
     }
   }
 
-  // Personal: 1 per month, rolls over. All months since join accumulate.
-  const accrued = monthsSinceJoin(member.joinDate)
+  // Personal: 1 per month, rolls over. Sum across all of this person's
+  // contracts; months in gaps between contracts don't accrue.
+  const memberContracts = contractsForUser(allContracts, member.email)
+  const accrued = memberContracts.length > 0
+    ? accrualMonthsFromContracts(memberContracts)
+    : monthsSinceJoin(member.joinDate)
   const used = typeLeaves.reduce((sum, l) => sum + (l.halfDay ? 0.5 : countWeekdays(l.startDate, l.endDate || l.startDate)), 0)
 
   // Overtime credits against personal leave balance
@@ -574,7 +592,7 @@ function showCellPopover(cell, email, date, existingLeave) {
     if (editBtn) {
       editBtn.addEventListener('click', () => {
         closeCellPopover()
-        openLeaveModal({ ...currentCtx, allLeaves: approvedLeaves }, {
+        openLeaveModal({ ...currentCtx, allLeaves: approvedLeaves, allContracts }, {
           onSave: () => {},
           editLeave: existingLeave,
         })
@@ -662,7 +680,7 @@ function showCellPopover(cell, email, date, existingLeave) {
           closeCellPopover()
           const leaveType = status === 'medical_leave' ? 'medical' : 'personal'
           const isHalfDay = status === 'half_day'
-          openLeaveModal({ ...currentCtx, allLeaves: approvedLeaves }, {
+          openLeaveModal({ ...currentCtx, allLeaves: approvedLeaves, allContracts }, {
             onSave: () => {},
             forEmail: email,
             date,

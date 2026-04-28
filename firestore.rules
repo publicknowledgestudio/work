@@ -128,5 +128,11 @@ service cloud.firestore {
       allow write: if isTeamMember();
     }
 
+    // Contracts (per-person engagement periods)
+    match /contracts/{contractId} {
+      allow read: if isTeamMember();
+      allow write: if isTeamMember();
+    }
+
   }
 }

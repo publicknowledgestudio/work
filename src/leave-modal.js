@@ -1,5 +1,6 @@
 import { TEAM, isAdmin, getAttendanceTeam } from './config.js'
 import { createLeave, updateLeave } from './db.js'
+import { accrualMonthsFromContracts, contractsForUser } from './utils/contracts.js'
 
 const overlay = document.getElementById('leave-modal')
 const closeBtn = document.getElementById('leave-modal-close')
@@ -75,14 +76,16 @@ saveBtn.addEventListener('click', async () => {
   let paidDays = days
   let unpaidDays = 0
 
-  if (selectedType === 'personal' && targetMember?.joinDate) {
-    const accrued = monthsSinceJoin(targetMember.joinDate)
-    // When editing, exclude the current leave from "used" calculation
-    const excludeId = editingLeaveId
-    const used = getUsedDays(targetEmail, 'personal', currentCtx.allLeaves || [], excludeId)
-    const available = Math.max(0, accrued - used)
-    paidDays = Math.min(days, available)
-    unpaidDays = days - paidDays
+  if (selectedType === 'personal') {
+    const accrued = accrualForMember(targetEmail, targetMember)
+    if (accrued !== null) {
+      // When editing, exclude the current leave from "used" calculation
+      const excludeId = editingLeaveId
+      const used = getUsedDays(targetEmail, 'personal', currentCtx.allLeaves || [], excludeId)
+      const available = Math.max(0, accrued - used)
+      paidDays = Math.min(days, available)
+      unpaidDays = days - paidDays
+    }
   }
 
   saveBtn.disabled = true
@@ -193,15 +196,17 @@ function updateSummary() {
 
   let html = `<strong>${days} day${days !== 1 ? 's' : ''}</strong> of ${selectedType} leave`
 
-  if (selectedType === 'personal' && targetMember?.joinDate) {
-    const accrued = monthsSinceJoin(targetMember.joinDate)
-    const used = getUsedDays(targetEmail, 'personal', currentCtx?.allLeaves || [], editingLeaveId)
-    const available = Math.max(0, accrued - used)
-    const paidDays = Math.min(days, available)
-    const unpaidDays = days - paidDays
+  if (selectedType === 'personal') {
+    const accrued = accrualForMember(targetEmail, targetMember)
+    if (accrued !== null) {
+      const used = getUsedDays(targetEmail, 'personal', currentCtx?.allLeaves || [], editingLeaveId)
+      const available = Math.max(0, accrued - used)
+      const paidDays = Math.min(days, available)
+      const unpaidDays = days - paidDays
 
-    if (unpaidDays > 0) {
-      html += `<br><span class="leave-summary-warn">\u26a0 ${paidDays} paid, ${unpaidDays} unpaid (balance exceeded)</span>`
+      if (unpaidDays > 0) {
+        html += `<br><span class="leave-summary-warn">\u26a0 ${paidDays} paid, ${unpaidDays} unpaid (balance exceeded)</span>`
+      }
     }
   }
 
@@ -227,6 +232,16 @@ function monthsSinceJoin(joinDate) {
   const now = new Date()
   let months = (now.getFullYear() - join.getFullYear()) * 12 + (now.getMonth() - join.getMonth()) + 1
   return Math.max(0, months)
+}
+
+// Accrued months for a person, preferring contracts (passed via ctx) and
+// falling back to the legacy joinDate hardcode. Returns null if neither is
+// available, so callers can skip paid/unpaid splitting.
+function accrualForMember(email, member) {
+  const memberContracts = contractsForUser(currentCtx?.allContracts || [], email)
+  if (memberContracts.length > 0) return accrualMonthsFromContracts(memberContracts)
+  if (member?.joinDate) return monthsSinceJoin(member.joinDate)
+  return null
 }
 
 function getUsedDays(email, type, allLeaves, excludeId) {

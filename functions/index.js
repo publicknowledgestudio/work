@@ -919,6 +919,50 @@ function monthsSinceJoin(joinDate) {
   return Math.max(0, months)
 }
 
+// Months a single contract has accrued by `asOf`. Mirrors src/utils/contracts.js.
+function contractMonths(contract, asOf) {
+  if (!contract || !contract.startDate) return 0
+  const start = new Date(contract.startDate + 'T00:00:00')
+  if (start > asOf) return 0
+  const end = contract.endDate ? new Date(contract.endDate + 'T00:00:00') : asOf
+  const cap = end < asOf ? end : asOf
+  return Math.max(0, (cap.getFullYear() - start.getFullYear()) * 12 + (cap.getMonth() - start.getMonth()) + 1)
+}
+
+// Sums accrued months across a person's contracts. Falls back to the legacy
+// joinDate hardcode if no contracts exist for the user (so the migration is
+// non-breaking until Phase 4 strips joinDate).
+async function accrualForUser(member, contractsByEmail = null) {
+  const userContracts = contractsByEmail
+    ? (contractsByEmail.get(member.email) || [])
+    : (await db.collection('contracts').where('userEmail', '==', member.email).get())
+        .docs.map((d) => d.data())
+  if (userContracts.length > 0) {
+    const now = new Date()
+    return userContracts.reduce((sum, c) => sum + contractMonths(c, now), 0)
+  }
+  return member.joinDate ? monthsSinceJoin(member.joinDate) : 0
+}
+
+// Earliest contract start date string (YYYY-MM-DD) or fallback joinDate.
+function earliestStart(member, userContracts) {
+  const dates = (userContracts || []).map((c) => c.startDate).filter(Boolean).sort()
+  return dates[0] || member.joinDate || null
+}
+
+// Loads all contracts once and indexes them by userEmail. Used by handlers
+// that need accrual for many people in one request.
+async function loadContractsByEmail() {
+  const snap = await db.collection('contracts').get()
+  const map = new Map()
+  snap.docs.forEach((d) => {
+    const c = d.data()
+    if (!map.has(c.userEmail)) map.set(c.userEmail, [])
+    map.get(c.userEmail).push(c)
+  })
+  return map
+}
+
 // === Leave Handlers ===
 
 async function listLeaves(req, res) {
@@ -960,7 +1004,7 @@ async function createLeave(req, res) {
   if (data.type === 'personal') {
     const member = TEAM_MEMBERS.find((m) => m.email === data.userEmail)
     if (member) {
-      const accrued = monthsSinceJoin(member.joinDate)
+      const accrued = await accrualForUser(member)
       const existingSnap = await db.collection('leaves')
         .where('userEmail', '==', data.userEmail)
         .where('type', '==', 'personal')
@@ -1022,13 +1066,14 @@ async function getLeaveBalances(req, res) {
 
   const snap = await db.collection('leaves').where('status', '==', 'approved').get()
   const allLeaves = snap.docs.map((d) => d.data())
+  const contractsByEmail = await loadContractsByEmail()
 
   // Current month string for medical (non-rolling) calculation
   const now = new Date()
   const currentMonthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
 
-  const balances = members.map((member) => {
-    const accrued = monthsSinceJoin(member.joinDate)
+  const balances = await Promise.all(members.map(async (member) => {
+    const accrued = await accrualForUser(member, contractsByEmail)
     const memberLeaves = allLeaves.filter((l) => l.userEmail === member.email)
 
     const personalLeaves = memberLeaves.filter((l) => l.type === 'personal')
@@ -1045,7 +1090,7 @@ async function getLeaveBalances(req, res) {
     return {
       userEmail: member.email,
       userName: member.name,
-      joinDate: member.joinDate,
+      joinDate: earliestStart(member, contractsByEmail.get(member.email)),
       personal: {
         accrued,
         used: personalUsed,
@@ -1058,7 +1103,7 @@ async function getLeaveBalances(req, res) {
         available: 1 - medicalUsedThisMonth,
       },
     }
-  })
+  }))
 
   res.json({ balances })
 }
