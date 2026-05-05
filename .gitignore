@@ -6,3 +6,5 @@ dist/
 .firebase/
 functions/node_modules/
 .xhawk/
+.claude/
+.DS_Store
