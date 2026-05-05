@@ -28,6 +28,7 @@ const TEAM_MEMBERS = [
   { email: 'anandu@publicknowledge.co', name: 'Anandu', role: 'member' },
   { email: 'mohit@publicknowledge.co', name: 'Mohit', role: 'member' },
   { email: 'rakesh@publicknowledge.co', name: 'Rakesh', role: 'member' },
+  { email: 'saurabh@publicknowledge.co', name: 'Saurabh', role: 'member' },
 ]
 
 const CLAUDE_API_KEY = defineSecret('CLAUDE_API_KEY')
