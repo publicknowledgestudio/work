@@ -106,6 +106,7 @@ saveBtn.addEventListener('click', async () => {
     }
 
     if (editingLeaveId) {
+      leaveData.updatedBy = currentCtx.currentUser.email
       await updateLeave(currentCtx.db, editingLeaveId, leaveData)
     } else {
       leaveData.createdBy = currentCtx.currentUser.email

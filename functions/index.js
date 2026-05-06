@@ -36,6 +36,9 @@ const SLACK_BOT_TOKEN = defineSecret('SLACK_BOT_TOKEN')
 const OPENCLAW_WEBHOOK_URL = defineSecret('OPENCLAW_WEBHOOK_URL')
 const OPENCLAW_WEBHOOK_SECRET = defineSecret('OPENCLAW_WEBHOOK_SECRET')
 
+const LEAVES_CHANNEL_ID = 'C09U7GVJ31R'
+const LEAVE_NOTIFY_TYPES = new Set(['personal', 'medical', 'overtime'])
+
 // Auth middleware
 function authenticate(req, res) {
   const key = req.headers['x-api-key']
@@ -494,6 +497,165 @@ async function postToSlackChannel(taskId, channelId, text, actedBy) {
     return writeOutcome('failed', data.error || 'unknown_error')
   } catch (err) {
     console.error('Slack postMessage network error:', err)
+    return writeOutcome('failed', 'network_error')
+  }
+}
+
+// === Leaves → #leaves notifier ===
+// Posts to #leaves on create / cancel / edit for personal, medical, overtime.
+// wfh is intentionally excluded — it's a daily status, not time off.
+
+exports.onLeaveWritten = onDocumentWritten(
+  { document: 'leaves/{leaveId}', secrets: [SLACK_BOT_TOKEN] },
+  async (event) => {
+    const after = event.data?.after
+    const before = event.data?.before
+    if (!after?.exists) return // hard delete — ignore (cancellation is a soft delete via status)
+
+    const leave = after.data()
+    const prev = before?.exists ? before.data() : null
+
+    if (!LEAVE_NOTIFY_TYPES.has(leave.type)) return
+
+    const isNew = !prev
+    const justCancelled = !!prev && prev.status !== 'cancelled' && leave.status === 'cancelled'
+    const isEdit = !!prev && prev.status !== 'cancelled' && leave.status !== 'cancelled' && hasLeaveFieldChange(prev, leave)
+
+    let message = ''
+    let actor = ''
+    if (isNew) {
+      message = formatLeaveCreate(leave)
+      actor = leave.createdBy || ''
+    } else if (justCancelled) {
+      message = formatLeaveCancel(leave)
+      actor = leave.cancelledBy || ''
+    } else if (isEdit) {
+      message = formatLeaveEdit(prev, leave)
+      actor = leave.updatedBy || leave.createdBy || ''
+    } else {
+      return
+    }
+
+    const subjectEmail = leave.userEmail || ''
+    if (actor && actor !== subjectEmail) {
+      const verb = isNew ? 'Marked' : justCancelled ? 'Cancelled' : 'Edited'
+      message += ` (${verb} by ${lookupTeamName(actor)})`
+    }
+
+    await postToLeavesChannel(event.params.leaveId, LEAVES_CHANNEL_ID, message, actor)
+  }
+)
+
+function hasLeaveFieldChange(a, b) {
+  return a.type !== b.type ||
+    a.startDate !== b.startDate ||
+    a.endDate !== b.endDate ||
+    !!a.halfDay !== !!b.halfDay ||
+    (a.note || '') !== (b.note || '')
+}
+
+function formatLeaveCreate(leave) {
+  const name = lookupTeamName(leave.userEmail)
+  const dates = formatLeaveDateRange(leave.startDate, leave.endDate, leave.halfDay)
+  if (leave.type === 'overtime') {
+    return `${name} logged overtime on ${dates}.`
+  }
+  const halfPrefix = leave.halfDay ? 'half-day ' : ''
+  return `${name} is on ${halfPrefix}leave (${leave.type}) on ${dates}.`
+}
+
+function formatLeaveCancel(leave) {
+  const name = lookupTeamName(leave.userEmail)
+  const dates = formatLeaveDateRange(leave.startDate, leave.endDate, leave.halfDay)
+  if (leave.type === 'overtime') {
+    return `${name}'s overtime on ${dates} was cancelled.`
+  }
+  return `${name}'s leave (${leave.type}) on ${dates} was cancelled.`
+}
+
+function formatLeaveEdit(prev, leave) {
+  const name = lookupTeamName(leave.userEmail)
+  const subject = leave.type === 'overtime'
+    ? `${name}'s overtime`
+    : `${name}'s leave (${leave.type})`
+  const diffs = []
+  if (prev.type !== leave.type) {
+    diffs.push(`type ${prev.type} → ${leave.type}`)
+  }
+  if (prev.startDate !== leave.startDate || prev.endDate !== leave.endDate) {
+    const oldDates = formatLeaveDateRange(prev.startDate, prev.endDate, prev.halfDay)
+    const newDates = formatLeaveDateRange(leave.startDate, leave.endDate, leave.halfDay)
+    diffs.push(`${oldDates} → ${newDates}`)
+  } else if (!!prev.halfDay !== !!leave.halfDay) {
+    diffs.push(leave.halfDay ? 'now half-day' : 'now full day')
+  }
+  if ((prev.note || '') !== (leave.note || '')) {
+    diffs.push('note updated')
+  }
+  return `${subject} was updated: ${diffs.join(', ')}.`
+}
+
+// "Wednesday, 12 June" / "Wednesday, 12 June – Friday, 14 June".
+// startDate / endDate are YYYY-MM-DD strings authored in the user's local
+// (IST) calendar. Parse them as plain date components — do NOT use new
+// Date(string) which would interpret as UTC and shift in display.
+function formatLeaveDateRange(startDate, endDate, halfDay) {
+  const start = parseISODateLocal(startDate)
+  if (!start) return startDate || ''
+  const startStr = formatLeaveDate(start)
+  if (!endDate || endDate === startDate || halfDay) return startStr
+  const end = parseISODateLocal(endDate)
+  if (!end) return startStr
+  return `${startStr} – ${formatLeaveDate(end)}`
+}
+
+function parseISODateLocal(s) {
+  if (!s || typeof s !== 'string') return null
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+  if (!m) return null
+  return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]))
+}
+
+function formatLeaveDate(d) {
+  const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+  const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+  return `${days[d.getDay()]}, ${d.getDate()} ${months[d.getMonth()]}`
+}
+
+// Mirrors postToSlackChannel but writes outcome onto the leaves doc.
+async function postToLeavesChannel(leaveId, channelId, text, actedBy) {
+  const writeOutcome = (status, error) => db.collection('leaves').doc(leaveId).update({
+    slackNotification: {
+      status,
+      error: error || '',
+      channel: channelId || '',
+      text: text || '',
+      actedBy: actedBy || '',
+      at: admin.firestore.FieldValue.serverTimestamp(),
+    },
+  }).catch((err) => console.error('Failed writing leaves slackNotification:', err))
+
+  const token = process.env.SLACK_BOT_TOKEN
+  if (!token) {
+    console.error('Leaves Slack post skipped: SLACK_BOT_TOKEN not configured')
+    return writeOutcome('failed', 'missing_bot_token')
+  }
+
+  try {
+    const resp = await fetch('https://slack.com/api/chat.postMessage', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify({ channel: channelId, text }),
+    })
+    const data = await resp.json()
+    if (data.ok) return writeOutcome('ok', '')
+    console.error('Leaves Slack postMessage failed:', data.error, 'channel:', channelId)
+    return writeOutcome('failed', data.error || 'unknown_error')
+  } catch (err) {
+    console.error('Leaves Slack postMessage network error:', err)
     return writeOutcome('failed', 'network_error')
   }
 }
