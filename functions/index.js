@@ -67,6 +67,8 @@ function getAssignees(t) {
  * POST /api/tasks          - Create a task
  * PATCH /api/tasks/:id     - Update a task
  * DELETE /api/tasks/:id    - Delete a task
+ * GET  /api/clients        - List all clients
+ * GET  /api/projects       - List projects (optional filter: ?clientId=x)
  */
 exports.api = onRequest(
   { secrets: [CLAUDE_API_KEY, OPENCLAW_WEBHOOK_URL, OPENCLAW_WEBHOOK_SECRET] },
@@ -93,6 +95,14 @@ exports.api = onRequest(
       if (req.method === 'DELETE' && segments.length === 2) {
         return await deleteTask(req, res, segments[1])
       }
+    }
+
+    // --- ASTY: SEARCH + STATUS ---
+    if (segments[0] === 'search' && req.method === 'GET') {
+      return await astySearch(req, res)
+    }
+    if (segments[0] === 'status' && req.method === 'GET') {
+      return await astyStatus(req, res)
     }
 
     // --- SCRUM (daily summary) ---
@@ -272,13 +282,23 @@ async function createTask(req, res) {
   const data = req.body
   if (!data.title) return res.status(400).json({ error: 'title is required' })
 
-  const assignees = data.assignees || (data.assignee ? [data.assignee] : [])
+  // Resolve human-readable names to ids/emails where provided
+  let clientId = data.clientId || ''
+  if (!clientId && data.clientName) {
+    clientId = (await resolveClientId(data.clientName)) || ''
+  }
+  let projectId = data.projectId || ''
+  if (!projectId && data.projectName) {
+    projectId = (await resolveProjectId(data.projectName, clientId)) || ''
+  }
+  const assigneesRaw = data.assignees || (data.assignee ? [data.assignee] : [])
+  const assignees = await resolveAssignees(assigneesRaw)
 
   const task = {
     title: data.title,
     description: data.description || '',
-    clientId: data.clientId || '',
-    projectId: data.projectId || '',
+    clientId,
+    projectId,
     assignees,
     status: data.status || 'todo',
     priority: data.priority || 'medium',
@@ -298,6 +318,24 @@ async function updateTask(req, res, taskId) {
   const data = req.body
   const update = { ...data, updatedAt: admin.firestore.FieldValue.serverTimestamp() }
 
+  // Resolve name fields if provided
+  if (data.clientName && !data.clientId) {
+    const cid = await resolveClientId(data.clientName)
+    if (cid) update.clientId = cid
+    delete update.clientName
+  }
+  if (data.projectName && !data.projectId) {
+    const pid = await resolveProjectId(data.projectName, update.clientId || data.clientId)
+    if (pid) update.projectId = pid
+    delete update.projectName
+  }
+  if (data.assignee && !data.assignees) {
+    update.assignees = await resolveAssignees([data.assignee])
+    delete update.assignee
+  } else if (data.assignees) {
+    update.assignees = await resolveAssignees(data.assignees)
+  }
+
   if (data.status === 'done') {
     update.closedAt = admin.firestore.FieldValue.serverTimestamp()
   } else if (data.status) {
@@ -315,6 +353,269 @@ async function updateTask(req, res, taskId) {
 async function deleteTask(req, res, taskId) {
   await db.collection('tasks').doc(taskId).delete()
   res.json({ id: taskId, deleted: true })
+}
+
+// === Asty / OpenClaw: name resolvers + search + status digest ===
+
+async function resolveClientId(clientName) {
+  if (!clientName) return null
+  const term = String(clientName).toLowerCase().trim()
+  const snap = await db.collection('clients').get()
+  const match = snap.docs.find((d) => (d.data().name || '').toLowerCase() === term)
+  if (match) return match.id
+  // substring fallback (single hit only, otherwise ambiguous)
+  const subs = snap.docs.filter((d) => (d.data().name || '').toLowerCase().includes(term))
+  return subs.length === 1 ? subs[0].id : null
+}
+
+async function resolveProjectId(projectName, clientId) {
+  if (!projectName) return null
+  const term = String(projectName).toLowerCase().trim()
+  let q = db.collection('projects')
+  if (clientId) q = q.where('clientId', '==', clientId)
+  const snap = await q.get()
+  const match = snap.docs.find((d) => (d.data().name || '').toLowerCase() === term)
+  if (match) return match.id
+  const subs = snap.docs.filter((d) => (d.data().name || '').toLowerCase().includes(term))
+  return subs.length === 1 ? subs[0].id : null
+}
+
+async function resolveAssigneeEmail(nameOrEmail) {
+  if (!nameOrEmail) return null
+  const val = String(nameOrEmail).trim()
+  if (val.includes('@')) return val
+  const term = val.toLowerCase()
+  const snap = await db.collection('people').get()
+  const match = snap.docs.find((d) => {
+    const data = d.data()
+    const name = (data.name || '').toLowerCase()
+    return name === term || name.split(' ')[0] === term
+  })
+  return match ? match.data().email || val : val
+}
+
+async function resolveAssignees(input) {
+  if (!input) return []
+  const arr = Array.isArray(input) ? input : [input]
+  const out = []
+  for (const v of arr) out.push(await resolveAssigneeEmail(v))
+  return out.filter(Boolean)
+}
+
+async function astySearch(req, res) {
+  const q = String(req.query.q || '').toLowerCase().trim()
+  if (!q) return res.status(400).json({ error: 'q is required' })
+  const limit = Math.max(1, Math.min(parseInt(req.query.limit || '12', 10), 25))
+
+  const [clientsSnap, projectsSnap, peopleSnap, tasksSnap] = await Promise.all([
+    db.collection('clients').get(),
+    db.collection('projects').get(),
+    db.collection('people').get(),
+    db.collection('tasks').orderBy('updatedAt', 'desc').limit(100).get(),
+  ])
+
+  const results = []
+
+  for (const d of clientsSnap.docs) {
+    const data = d.data()
+    if ((data.name || '').toLowerCase().includes(q)) {
+      results.push({
+        type: 'client',
+        id: d.id,
+        name: data.name,
+        slackChannelId: data.slackChannelId || null,
+      })
+    }
+  }
+
+  for (const d of projectsSnap.docs) {
+    const data = d.data()
+    if ((data.name || '').toLowerCase().includes(q)) {
+      results.push({
+        type: 'project',
+        id: d.id,
+        name: data.name,
+        clientId: data.clientId || null,
+      })
+    }
+  }
+
+  for (const d of peopleSnap.docs) {
+    const data = d.data()
+    const name = (data.name || '').toLowerCase()
+    const email = (data.email || '').toLowerCase()
+    if (name.includes(q) || email.includes(q)) {
+      results.push({
+        type: 'person',
+        id: d.id,
+        name: data.name,
+        email: data.email || null,
+        role: data.role || null,
+      })
+    }
+  }
+
+  for (const d of tasksSnap.docs) {
+    const data = d.data()
+    if ((data.title || '').toLowerCase().includes(q)) {
+      results.push({
+        type: 'task',
+        id: d.id,
+        title: data.title,
+        status: data.status,
+        assignees: data.assignees || [],
+        clientId: data.clientId || null,
+        projectId: data.projectId || null,
+      })
+    }
+  }
+
+  res.json({ q, results: results.slice(0, limit) })
+}
+
+async function astyStatus(req, res) {
+  const rawScope = String(req.query.scope || '').toLowerCase().trim()
+
+  let kind = 'all'
+  let assigneeFilter = null
+  let clientFilter = null
+  let label = 'studio'
+
+  if (rawScope === 'today') {
+    kind = 'today'
+    label = 'today'
+  } else if (rawScope) {
+    // try person (name first-word or full name, or email)
+    const peopleSnap = await db.collection('people').get()
+    const personMatch = peopleSnap.docs.find((d) => {
+      const data = d.data()
+      const name = (data.name || '').toLowerCase()
+      const email = (data.email || '').toLowerCase()
+      return name === rawScope || name.split(' ')[0] === rawScope || email === rawScope
+    })
+    if (personMatch) {
+      assigneeFilter = personMatch.data().email
+      kind = 'person'
+      label = personMatch.data().name || assigneeFilter
+    } else {
+      const clientsSnap = await db.collection('clients').get()
+      const clientMatch = clientsSnap.docs.find((d) => {
+        const name = (d.data().name || '').toLowerCase()
+        return name === rawScope || name.includes(rawScope)
+      })
+      if (clientMatch) {
+        clientFilter = clientMatch.id
+        kind = 'client'
+        label = clientMatch.data().name
+      } else {
+        return res.status(400).json({
+          error: 'scope did not match a known person or client',
+          scope: rawScope,
+          hint: 'try a first name (e.g. charu), a client name (e.g. brunk), or "today"',
+        })
+      }
+    }
+  }
+
+  let q = db.collection('tasks')
+  if (assigneeFilter) q = q.where('assignees', 'array-contains', assigneeFilter)
+  if (clientFilter) q = q.where('clientId', '==', clientFilter)
+  const snap = await q.get()
+  let all = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+
+  if (kind === 'today') {
+    const startOfDay = new Date()
+    startOfDay.setHours(0, 0, 0, 0)
+    const endOfDay = new Date(startOfDay)
+    endOfDay.setDate(endOfDay.getDate() + 1)
+    all = all.filter((t) => {
+      const dl = t.deadline?.toDate?.()
+      return dl && dl >= startOfDay && dl < endOfDay
+    })
+  }
+
+  // Always build a clients map with slack channels — Asty needs this to route per-client messages
+  const cs = await db.collection('clients').get()
+  const clients = {}
+  cs.docs.forEach((d) => {
+    const data = d.data()
+    clients[d.id] = {
+      name: data.name || '',
+      slackChannelId: data.slackChannelId || null,
+    }
+  })
+
+  const slim = (t) => ({
+    id: t.id,
+    title: t.title,
+    status: t.status,
+    assignees: t.assignees || [],
+    clientId: t.clientId || null,
+    client: clients[t.clientId]?.name || null,
+    slackChannelId: clients[t.clientId]?.slackChannelId || null,
+    deadline: t.deadline?.toDate?.()?.toISOString()?.split('T')[0] || null,
+    priority: t.priority || null,
+  })
+
+  const byStatus = { backlog: [], todo: [], in_progress: [], review: [], done: [] }
+  for (const t of all) {
+    const s = t.status || 'todo'
+    if (byStatus[s]) byStatus[s].push(slim(t))
+  }
+
+  const activeCount =
+    byStatus.todo.length + byStatus.in_progress.length + byStatus.review.length
+
+  // For client scope, surface the channel id at the top level.
+  const slackChannelId =
+    kind === 'client' && clientFilter
+      ? clients[clientFilter]?.slackChannelId || null
+      : null
+
+  // For studio-wide, build a per-client breakdown so Asty can route per channel.
+  let activeClients = null
+  if (kind === 'all') {
+    const acc = {}
+    const allActive = [...byStatus.todo, ...byStatus.in_progress, ...byStatus.review]
+    for (const t of allActive) {
+      if (!t.clientId) continue
+      const key = t.clientId
+      if (!acc[key]) {
+        acc[key] = {
+          clientId: key,
+          name: clients[key]?.name || null,
+          slackChannelId: clients[key]?.slackChannelId || null,
+          in_progress: 0,
+          review: 0,
+          todo: 0,
+        }
+      }
+      acc[key][t.status] = (acc[key][t.status] || 0) + 1
+    }
+    activeClients = Object.values(acc).sort(
+      (a, b) =>
+        b.in_progress + b.review + b.todo - (a.in_progress + a.review + a.todo),
+    )
+  }
+
+  res.json({
+    scope: rawScope || 'all',
+    kind,
+    label,
+    slackChannelId,
+    activeClients,
+    counts: {
+      active: activeCount,
+      in_progress: byStatus.in_progress.length,
+      review: byStatus.review.length,
+      todo: byStatus.todo.length,
+      backlog: byStatus.backlog.length,
+      done: byStatus.done.length,
+    },
+    in_progress: byStatus.in_progress,
+    review: byStatus.review,
+    todo: byStatus.todo,
+  })
 }
 
 // === Processes ===
@@ -746,7 +1047,10 @@ async function listClients(req, res) {
 }
 
 async function listProjects(req, res) {
-  const snap = await db.collection('projects').orderBy('name').get()
+  let q = db.collection('projects')
+  if (req.query.clientId) q = q.where('clientId', '==', req.query.clientId)
+  q = q.orderBy('name')
+  const snap = await q.get()
   res.json({ projects: snap.docs.map((d) => ({ id: d.id, ...d.data() })) })
 }
 
