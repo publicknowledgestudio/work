@@ -10,7 +10,7 @@ import { getFirestore } from 'firebase/firestore'
 import { firebaseConfig, TEAM, STATUSES } from './config.js'
 import { loadClients, loadClientById, loadProjects, loadProjectsByClient, loadPeople, subscribeToTasks, saveUserProfile, loadUserProfiles, updateTask, loadClientUser, subscribeToTasksByClient, setCurrentUser } from './db.js'
 import { renderBoard, renderBoardByAssignee, renderBoardByClient, renderBoardByProject } from './board.js'
-import { renderMyTasks } from './my-tasks.js'
+import { renderBacklog } from './backlog.js'
 import { renderMyDay } from './my-day.js'
 import { renderClients, cleanupClients } from './clients.js'
 import { renderPeople, cleanupPeople } from './people.js'
@@ -52,7 +52,7 @@ let unsubTasks = null
 // ── Hash-based routing ──
 const ROUTES = {
   '/my-week':       { view: 'my-day' },
-  '/my-tasks':      { view: 'my-tasks' },
+  '/backlog':       { view: 'backlog' },
   '/board':         { view: 'board', boardView: 'status' },
   '/board/backlog': { view: 'board', boardView: 'status' },
   '/board/team':    { view: 'board', boardView: 'assignee' },
@@ -71,7 +71,7 @@ const ROUTES = {
 }
 
 const VIEW_TO_PATH = {
-  'my-day': '/my-week', 'my-tasks': '/my-tasks', 'team-timeline': '/timeline',
+  'my-day': '/my-week', 'backlog': '/backlog', 'team-timeline': '/timeline',
   'timesheets': '/timesheets', 'people': '/people',
   'references': '/references', 'clients': '/manage',
   'attendance': '/attendance', 'contracts': '/contracts',
@@ -83,7 +83,7 @@ const BOARD_TO_PATH = {
   'client': '/board/clients', 'project': '/board/projects',
 }
 
-const TEAM_ONLY_VIEWS = ['my-day', 'my-tasks', 'board', 'team-timeline', 'timesheets', 'people', 'references', 'clients', 'attendance', 'contracts']
+const TEAM_ONLY_VIEWS = ['my-day', 'backlog', 'board', 'team-timeline', 'timesheets', 'people', 'references', 'clients', 'attendance', 'contracts']
 
 function navigateTo(view, boardView) {
   const path = view === 'board'
@@ -873,7 +873,7 @@ function renderCurrentView() {
   // Hide filters and new-task button on non-task views
   const filterGroup = document.getElementById('filter-group')
   const isBoardView = currentView === 'board'
-  const isTaskView = isBoardView || currentView === 'my-tasks' || currentView === 'my-day' || currentView === 'team-timeline'
+  const isTaskView = isBoardView || currentView === 'backlog' || currentView === 'my-day' || currentView === 'team-timeline'
   filterGroup.style.display = isTaskView ? '' : 'none'
   newTaskBtn.style.display = isTaskView ? '' : 'none'
 
@@ -891,8 +891,8 @@ if (currentView !== 'references') cleanupReferences()
     case 'my-day':
       return renderMyDay(mainContent, tasks, currentUser, ctx)
       break
-    case 'my-tasks':
-      renderMyTasks(mainContent, tasks, currentUser, ctx)
+    case 'backlog':
+      renderBacklog(mainContent, tasks, currentUser, ctx)
       break
     case 'clients':
       renderClients(mainContent, ctx)

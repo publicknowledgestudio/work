@@ -204,7 +204,7 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 6px 14px;
+  padding: 6px 8px;
   border: none;
   background: none;
   font-family: var(--font);
@@ -1094,58 +1094,6 @@ body {
   font-weight: 500;
 }
 
-/* ===== My Tasks ===== */
-.my-tasks {
-  padding: 24px;
-  max-width: 700px;
-  margin: 0 auto;
-}
-
-.my-tasks-section {
-  margin-bottom: 24px;
-}
-
-.my-tasks-section-title {
-  font-size: 12px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  color: var(--text-secondary);
-  margin-bottom: 8px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.my-tasks-count {
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--text-tertiary);
-}
-
-.my-tasks-list {
-  min-height: 8px;
-  border-radius: var(--radius);
-  transition: all 0.15s;
-}
-
-.my-tasks-list.drag-over {
-  background: var(--primary-light);
-  outline: 2px dashed var(--primary);
-  outline-offset: -2px;
-  min-height: 40px;
-}
-
-.my-tasks-empty {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 6px;
-  border: 1px dashed var(--border);
-  border-radius: var(--radius);
-  color: var(--text-tertiary);
-  font-size: 14px;
-}
 
 .my-task-row {
   display: flex;
@@ -2736,6 +2684,96 @@ body {
   box-shadow: inset 0 0 0 2px var(--primary);
   background: rgba(99, 102, 241, 0.06);
 }
+.my-task-row.selected {
+  box-shadow: inset 0 0 0 2px var(--primary);
+  background: rgba(99, 102, 241, 0.06);
+}
+
+/* ===== Backlog view ===== */
+.backlog-view {
+  padding: 24px;
+  max-width: 980px;
+  margin: 0 auto;
+}
+
+.backlog-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.backlog-empty {
+  padding: 64px 20px;
+  text-align: center;
+  color: var(--text-tertiary);
+}
+.backlog-empty i {
+  font-size: 32px;
+  opacity: 0.4;
+}
+.backlog-empty p {
+  margin: 12px 0 0;
+  font-size: 13px;
+}
+
+.backlog-promote-btn {
+  all: unset;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  margin-left: 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--primary);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  flex-shrink: 0;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s, background 0.15s, color 0.15s, border-color 0.15s;
+}
+.backlog-promote-btn i {
+  font-size: 12px;
+}
+.my-task-row:hover .backlog-promote-btn {
+  opacity: 1;
+  pointer-events: auto;
+}
+.backlog-promote-btn:hover {
+  background: var(--primary);
+  color: white;
+  border-color: var(--primary);
+}
+.my-task-row.promoting {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.backlog-assignees {
+  display: inline-flex;
+  gap: -2px;
+}
+.backlog-assignee {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  object-fit: cover;
+  border: 1.5px solid var(--surface);
+  margin-left: -4px;
+}
+.backlog-assignees .backlog-assignee:first-child {
+  margin-left: 0;
+}
+.backlog-assignee-initial {
+  color: white;
+  font-size: 10px;
+  font-weight: 600;
+}
 
 /* ===== My Day — Floating Add Bar ===== */
 .myday-add-spacer {
@@ -3520,8 +3558,8 @@ body {
     scroll-snap-align: center;
   }
 
-  /* --- My Tasks --- */
-  .my-tasks {
+  /* --- Backlog --- */
+  .backlog-view {
     padding: 16px;
     max-width: 100%;
   }
