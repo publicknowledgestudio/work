@@ -137,45 +137,11 @@ export function renderTimeGrid({
     slotsHtml += `<div class="tg-slot" data-slot="${i}" style="top:${i * SLOT_H}px;height:${SLOT_H}px"></div>`
   }
 
-  // Unscheduled focus tasks (in taskIds but not in timeBlocks, excluding done tasks)
-  const scheduledIds = new Set(timeBlocks.map((b) => b.taskId))
-  const unscheduled = focusTasks.filter((t) => !scheduledIds.has(t.id) && t.status !== 'done')
-  const unschedHtml =
-    unscheduled.length > 0
-      ? `<div class="tg-unscheduled">
-        <span class="tg-unscheduled-label">Unscheduled</span>
-        ${unscheduled.map((t) => {
-          const project = ctx.projects.find((p) => p.id === t.projectId)
-          const client = ctx.clients.find((c) => c.id === t.clientId)
-          const clientLogo = client?.logoUrl
-            ? `<img class="client-logo-xs" src="${client.logoUrl}" alt="${esc(client.name)}">`
-            : ''
-          const deadline = deadlineTagHtml(t, now)
-          return `<div class="my-day-card upnext" data-id="${t.id}" draggable="true">
-            <div class="my-day-card-main">
-              ${statusIconHtml(t.status)}
-              ${t.priority === 'urgent' ? '<i class="ph-fill ph-warning urgent-icon"></i>' : ''}
-              ${clientLogo}
-              ${project ? `<span class="my-day-project">${esc(project.name)}</span>` : ''}
-              <span class="my-day-card-title">${esc(t.title)}</span>
-              <div class="my-day-card-meta">
-                ${deadline}
-              </div>
-            </div>
-            <div class="my-day-card-actions">
-              <button class="btn-icon-xs" data-action="unfocus" data-id="${t.id}" title="Remove from My Day"><i class="ph ph-x"></i></button>
-            </div>
-          </div>`
-        }).join('')}
-      </div>`
-      : ''
-
   return `
     <div class="tg-wrap" id="tg-wrap">
       ${dayNavHtml}
       ${connectHtml}
       ${allDayHtml}
-      ${unschedHtml}
       <div class="tg-scroll" id="tg-scroll">
         <div class="tg" id="tg" style="height:${GRID_H}px">
           <div class="tg-gutter" style="width:${GUTTER_W}px">${labelsHtml}</div>
