@@ -32,30 +32,28 @@ vi.mock('./config.js', () => ({
 // Import after mocking
 import { renderClients, cleanupClients } from './clients.js'
 
-describe('clients.js', () => {
+describe('clients.js (master-detail layout)', () => {
   let container
   let mockCtx
   let clientsCallback
   let projectsCallback
+  let usersCallback
 
   beforeEach(() => {
     vi.clearAllMocks()
 
-    // Capture the callbacks
-    vi.mocked(db.subscribeToClients).mockImplementation((database, cb) => {
+    vi.mocked(db.subscribeToClients).mockImplementation((_db, cb) => {
       clientsCallback = cb
-      return vi.fn() // unsubscribe function
+      return vi.fn()
     })
-
-    vi.mocked(db.subscribeToProjects).mockImplementation((database, cb) => {
+    vi.mocked(db.subscribeToProjects).mockImplementation((_db, cb) => {
       projectsCallback = cb
-      return vi.fn() // unsubscribe function
+      return vi.fn()
     })
-
-    // Default: no-op subscription that returns an unsubscribe fn so
-    // cleanupClients() doesn't blow up. Tests that care about the
-    // callback can override this implementation per-test.
-    vi.mocked(db.subscribeToClientUsers).mockImplementation(() => vi.fn())
+    vi.mocked(db.subscribeToClientUsers).mockImplementation((_db, cb) => {
+      usersCallback = cb
+      return vi.fn()
+    })
 
     container = document.createElement('div')
     document.body.appendChild(container)
@@ -71,158 +69,162 @@ describe('clients.js', () => {
 
   afterEach(() => {
     cleanupClients()
-    if (container.parentNode) {
-      document.body.removeChild(container)
-    }
+    if (container.parentNode) document.body.removeChild(container)
   })
 
   describe('renderClients', () => {
-    it('should render the clients view with header', () => {
+    it('renders the manage view with header', () => {
       renderClients(container, mockCtx)
-
-      expect(container.querySelector('.clients-view')).toBeTruthy()
+      expect(container.querySelector('.manage-view')).toBeTruthy()
       expect(container.querySelector('h2').textContent).toBe('Clients & Projects')
     })
 
-    it('should render add client button', () => {
+    it('renders the add-client button in the sidebar', () => {
       renderClients(container, mockCtx)
-
       const addBtn = container.querySelector('#add-client-btn')
       expect(addBtn).toBeTruthy()
       expect(addBtn.textContent).toContain('Client')
     })
 
-    it('should render add project button', () => {
+    it('subscribes to clients, projects, and client users', () => {
       renderClients(container, mockCtx)
-
-      const addBtn = container.querySelector('#add-project-btn')
-      expect(addBtn).toBeTruthy()
-      expect(addBtn.textContent).toContain('Project')
-    })
-
-    it('should subscribe to clients and projects', () => {
-      renderClients(container, mockCtx)
-
       expect(db.subscribeToClients).toHaveBeenCalledWith(mockCtx.db, expect.any(Function))
       expect(db.subscribeToProjects).toHaveBeenCalledWith(mockCtx.db, expect.any(Function))
+      expect(db.subscribeToClientUsers).toHaveBeenCalledWith(mockCtx.db, expect.any(Function))
     })
 
-    it('should show empty state when no clients', () => {
+    it('shows empty state in sidebar when no clients', () => {
       renderClients(container, mockCtx)
       clientsCallback([])
-
-      const clientsList = container.querySelector('#clients-list')
-      expect(clientsList.textContent).toContain('No clients yet')
-    })
-
-    it('should show empty state when no projects', () => {
-      renderClients(container, mockCtx)
       projectsCallback([])
-
-      const projectsList = container.querySelector('#projects-list')
-      expect(projectsList.textContent).toContain('No projects yet')
+      usersCallback([])
+      const sidebarList = container.querySelector('#manage-client-list')
+      expect(sidebarList.textContent).toContain('No clients yet')
     })
 
-    it('should render client list when clients are provided', () => {
+    it('renders empty state in detail pane when no client selected', () => {
       renderClients(container, mockCtx)
+      clientsCallback([])
+      projectsCallback([])
+      usersCallback([])
+      const detail = container.querySelector('#manage-detail')
+      expect(detail.textContent).toContain('Pick a client')
+    })
 
+    it('renders sidebar rows when clients are seeded', () => {
+      renderClients(container, mockCtx)
       clientsCallback([
         { id: 'c1', name: 'Client One', logoUrl: '', defaultHourlyRate: 100, currency: 'USD' },
         { id: 'c2', name: 'Client Two', logoUrl: '', defaultHourlyRate: 150, currency: 'INR' },
       ])
-
-      const clientRows = container.querySelectorAll('.client-row')
-      expect(clientRows).toHaveLength(2)
+      projectsCallback([])
+      usersCallback([])
+      const rows = container.querySelectorAll('.manage-client-row')
+      expect(rows).toHaveLength(2)
     })
 
-    it('should display client logo when available', () => {
+    it('shows client logo when provided', () => {
       renderClients(container, mockCtx)
-
       clientsCallback([
-        { id: 'c1', name: 'Client One', logoUrl: 'https://example.com/logo.png', defaultHourlyRate: 0, currency: 'INR' },
+        { id: 'c1', name: 'Client One', logoUrl: 'https://example.com/logo.png' },
       ])
-
-      const logo = container.querySelector('.client-logo')
+      projectsCallback([])
+      usersCallback([])
+      const logo = container.querySelector('.manage-client-logo')
       expect(logo.tagName).toBe('IMG')
-      // Check the HTML contains the URL since innerHTML rendering
-      const clientRow = container.querySelector('.client-row')
-      expect(clientRow.innerHTML).toContain('https://example.com/logo.png')
+      expect(logo.getAttribute('src')).toBe('https://example.com/logo.png')
     })
 
-    it('should display project count for each client', () => {
+    it('displays project count in sidebar row meta', () => {
       renderClients(container, mockCtx)
-
-      clientsCallback([
-        { id: 'c1', name: 'Client One', logoUrl: '', defaultHourlyRate: 0, currency: 'INR' },
-      ])
-
+      clientsCallback([{ id: 'c1', name: 'Client One' }])
       projectsCallback([
         { id: 'p1', name: 'Project 1', clientId: 'c1' },
         { id: 'p2', name: 'Project 2', clientId: 'c1' },
       ])
-
-      const clientMeta = container.querySelector('.client-row-meta')
-      expect(clientMeta.textContent).toContain('2 projects')
+      usersCallback([])
+      const meta = container.querySelector('.manage-client-row-meta')
+      expect(meta.textContent).toContain('2 projects')
     })
 
-    it('should display hourly rate in client meta when available', () => {
+    it('auto-selects the first client and renders its detail pane', () => {
       renderClients(container, mockCtx)
-
       clientsCallback([
-        { id: 'c1', name: 'Client One', logoUrl: '', defaultHourlyRate: 150, currency: 'USD' },
+        { id: 'c1', name: 'Acme', defaultHourlyRate: 150, currency: 'USD', slackChannelId: 'CHAN1' },
       ])
-
       projectsCallback([])
+      usersCallback([])
+      const name = container.querySelector('.manage-detail-name')
+      expect(name.textContent).toBe('Acme')
+      // Rate chip is in detail pane, not sidebar
+      const chips = container.querySelector('.manage-detail-chips').textContent
+      expect(chips).toContain('USD 150/hr')
+      expect(chips).toContain('CHAN1')
+    })
 
-      const clientMeta = container.querySelector('.client-row-meta')
-      expect(clientMeta.textContent).toContain('USD 150/hr')
+    it('shows slack indicator in sidebar for clients with slackChannelId', () => {
+      renderClients(container, mockCtx)
+      clientsCallback([
+        { id: 'c1', name: 'With Slack', slackChannelId: 'C1' },
+        { id: 'c2', name: 'Without' },
+      ])
+      projectsCallback([])
+      usersCallback([])
+      const rows = container.querySelectorAll('.manage-client-row')
+      expect(rows[0].querySelector('.manage-slack-indicator')).toBeTruthy()
+      expect(rows[1].querySelector('.manage-slack-indicator')).toBeFalsy()
+    })
+
+    it('shows the empty-projects state in the detail pane when selected client has none', () => {
+      renderClients(container, mockCtx)
+      clientsCallback([{ id: 'c1', name: 'Acme' }])
+      projectsCallback([])
+      usersCallback([])
+      const projectsList = container.querySelector('#projects-list')
+      expect(projectsList.textContent).toContain('No projects yet')
     })
   })
 
-  describe('Add Client Form', () => {
-    it('should show add client form when add button clicked', () => {
+  describe('Add Client Form (sidebar slot)', () => {
+    it('shows form when add button clicked', () => {
       renderClients(container, mockCtx)
+      clientsCallback([])
+      projectsCallback([])
+      usersCallback([])
 
       const addBtn = container.querySelector('#add-client-btn')
       const form = container.querySelector('#add-client-form')
-
       expect(form.classList.contains('hidden')).toBe(true)
       addBtn.click()
       expect(form.classList.contains('hidden')).toBe(false)
     })
 
-    it('should hide form when cancel button clicked', () => {
+    it('hides form when cancel clicked', () => {
       renderClients(container, mockCtx)
+      clientsCallback([])
+      projectsCallback([])
+      usersCallback([])
 
-      const addBtn = container.querySelector('#add-client-btn')
-      const cancelBtn = container.querySelector('#cancel-client-btn')
+      container.querySelector('#add-client-btn').click()
       const form = container.querySelector('#add-client-form')
-
-      addBtn.click()
       expect(form.classList.contains('hidden')).toBe(false)
-
-      cancelBtn.click()
+      container.querySelector('#cf-cancel').click()
       expect(form.classList.contains('hidden')).toBe(true)
     })
 
-    it('should create client when save button clicked', async () => {
+    it('creates client when save clicked', async () => {
       vi.mocked(db.createClient).mockResolvedValue({ id: 'new-client' })
-
       renderClients(container, mockCtx)
+      clientsCallback([])
+      projectsCallback([])
+      usersCallback([])
 
-      const addBtn = container.querySelector('#add-client-btn')
-      addBtn.click()
+      container.querySelector('#add-client-btn').click()
+      container.querySelector('#cf-name').value = 'New Client'
+      container.querySelector('#cf-rate').value = '200'
+      container.querySelector('#cf-save').click()
 
-      const nameInput = container.querySelector('#new-client-name')
-      const rateInput = container.querySelector('#new-client-rate')
-      const saveBtn = container.querySelector('#save-client-btn')
-
-      nameInput.value = 'New Client'
-      rateInput.value = '200'
-
-      saveBtn.click()
-
-      await new Promise(resolve => setTimeout(resolve, 100))
+      await new Promise((r) => setTimeout(r, 50))
 
       expect(db.createClient).toHaveBeenCalledWith(
         mockCtx.db,
@@ -231,42 +233,132 @@ describe('clients.js', () => {
           logoUrl: '',
           defaultHourlyRate: 200,
           currency: 'INR',
-        })
+          slackChannelId: '',
+        }),
       )
     })
 
-    it('should not create client when name is empty', async () => {
+    it('does not save with empty name', async () => {
       renderClients(container, mockCtx)
+      clientsCallback([])
+      projectsCallback([])
+      usersCallback([])
 
-      const addBtn = container.querySelector('#add-client-btn')
-      addBtn.click()
-
-      const saveBtn = container.querySelector('#save-project-btn')
-      saveBtn.click()
-
-      await new Promise(resolve => setTimeout(resolve, 100))
-
+      container.querySelector('#add-client-btn').click()
+      // Leave #cf-name empty
+      container.querySelector('#cf-save').click()
+      await new Promise((r) => setTimeout(r, 50))
       expect(db.createClient).not.toHaveBeenCalled()
     })
   })
 
+  describe('Edit Client Form (detail pane slot)', () => {
+    it('routes edit form into the detail pane, not the sidebar', () => {
+      renderClients(container, mockCtx)
+      clientsCallback([
+        { id: 'c1', name: 'Acme', defaultHourlyRate: 100, currency: 'INR', slackChannelId: 'C1' },
+      ])
+      projectsCallback([])
+      usersCallback([])
+
+      const sidebarForm = container.querySelector('#add-client-form')
+      const detailForm = container.querySelector('#edit-client-form')
+
+      expect(sidebarForm.classList.contains('hidden')).toBe(true)
+      expect(detailForm.classList.contains('hidden')).toBe(true)
+
+      container.querySelector('#edit-client-btn').click()
+
+      expect(detailForm.classList.contains('hidden')).toBe(false)
+      expect(sidebarForm.classList.contains('hidden')).toBe(true)
+      expect(detailForm.querySelector('#cf-name').value).toBe('Acme')
+      expect(detailForm.querySelector('#cf-slack').value).toBe('C1')
+    })
+
+    it('updates the client on save', async () => {
+      vi.mocked(db.updateClient).mockResolvedValue()
+      renderClients(container, mockCtx)
+      clientsCallback([
+        { id: 'c1', name: 'Acme', defaultHourlyRate: 100, currency: 'INR' },
+      ])
+      projectsCallback([])
+      usersCallback([])
+
+      container.querySelector('#edit-client-btn').click()
+      const detailForm = container.querySelector('#edit-client-form')
+      detailForm.querySelector('#cf-name').value = 'Acme Renamed'
+      detailForm.querySelector('#cf-rate').value = '250'
+      detailForm.querySelector('#cf-save').click()
+
+      await new Promise((r) => setTimeout(r, 50))
+
+      expect(db.updateClient).toHaveBeenCalledWith(
+        mockCtx.db,
+        'c1',
+        expect.objectContaining({
+          name: 'Acme Renamed',
+          defaultHourlyRate: 250,
+          currency: 'INR',
+        }),
+      )
+    })
+  })
+
+  describe('Add Project Form (detail pane)', () => {
+    it('only available once a client is selected', () => {
+      renderClients(container, mockCtx)
+      clientsCallback([])
+      projectsCallback([])
+      usersCallback([])
+      // No selection → no add-project button
+      expect(container.querySelector('#add-project-btn')).toBeFalsy()
+    })
+
+    it('creates a project scoped to the selected client', async () => {
+      vi.mocked(db.createProject).mockResolvedValue()
+      renderClients(container, mockCtx)
+      clientsCallback([
+        { id: 'c1', name: 'Acme', defaultHourlyRate: 100, currency: 'INR' },
+      ])
+      projectsCallback([])
+      usersCallback([])
+
+      container.querySelector('#add-project-btn').click()
+      container.querySelector('#pf-name').value = 'New Project'
+      container.querySelector('#pf-save').click()
+
+      await new Promise((r) => setTimeout(r, 50))
+
+      expect(db.createProject).toHaveBeenCalledWith(
+        mockCtx.db,
+        expect.objectContaining({
+          name: 'New Project',
+          clientId: 'c1',
+          hourlyRate: 100, // inherits from client
+          currency: 'INR',
+        }),
+      )
+    })
+  })
+
   describe('cleanupClients', () => {
-    it('should unsubscribe from listeners', () => {
+    it('unsubscribes from all listeners', () => {
       const unsubClients = vi.fn()
       const unsubProjects = vi.fn()
-
+      const unsubUsers = vi.fn()
       vi.mocked(db.subscribeToClients).mockReturnValue(unsubClients)
       vi.mocked(db.subscribeToProjects).mockReturnValue(unsubProjects)
+      vi.mocked(db.subscribeToClientUsers).mockReturnValue(unsubUsers)
 
       renderClients(container, mockCtx)
-
       cleanupClients()
 
       expect(unsubClients).toHaveBeenCalled()
       expect(unsubProjects).toHaveBeenCalled()
+      expect(unsubUsers).toHaveBeenCalled()
     })
 
-    it('should handle cleanup when no subscriptions active', () => {
+    it('is a no-op when no subscriptions active', () => {
       expect(() => cleanupClients()).not.toThrow()
     })
   })
